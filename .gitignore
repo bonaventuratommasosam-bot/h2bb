@@ -1,0 +1,33 @@
+# Secrets / data NEVER commit
+.env
+.env.*
+*.json
+*.jsonl
+wallet.json
+strategy.json
+balance.json
+risk-state.json
+shadow-state.json
+gateway_state.json
+channel_directory.json
+a2a_audit.jsonl
+execution-fill.jsonl
+ai-signals.jsonl
+events.jsonl
+trades.jsonl
+strategy-changelog.jsonl
+shadow-signals.jsonl
+bear-signals.jsonl
+trade-review.jsonl
+config/strategy.json
+config/cache/
+cache/
+memory/
+auth.json
+node_modules/
+
+# Local backups
+*.bak-*
+
+# OS
+.DS_Store
