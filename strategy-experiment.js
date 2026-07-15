@@ -14,6 +14,8 @@ const SNAPSHOTS_DIR = path.join(DATA_DIR, 'strategy-snapshots');
 // Parametri testabili con range
 const TUNABLE_PARAMS = [
   { key: 'minConfidenceScore', min: 55, max: 80, step: 5, label: 'Soglia confidenza' },
+  { key: 'riskPerTradePercent', min: 0.5, max: 4.0, step: 0.5, label: 'Rischio per trade %' },
+  { key: 'maxPositionPercent', min: 30, max: 100, step: 10, label: 'Max posizione %' },
   { key: 'atrStopMultiplier', min: 1.5, max: 3.0, step: 0.5, label: 'ATR Stop Multiplier' },
   { key: 'atrTp1Multiplier', min: 1.5, max: 3.0, step: 0.5, label: 'ATR TP1 Multiplier' },
   { key: 'intervalMinutes', min: 15, max: 60, step: 15, label: 'Intervallo trade (min)' },

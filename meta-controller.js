@@ -15,6 +15,14 @@ const CHANGELOG = path.join(DATA_DIR, 'strategy-changelog.jsonl');
 
 // AUTONOMY: nessun hard-limit — il bot gestisce liberamente score, size e risk.
 // Unico guard-rail: sanitize-strategy (blocca NaN/Inf, non le sue decisioni).
+//
+// RANGE RISK (autonomous adjustments, clamped by sanitize-strategy.js)
+const RISK_MIN = 0.5;
+const RISK_MAX = 4.0;
+const POS_MIN   = 30;
+const POS_MAX   = 100;
+const LOSS_MIN  = 3;
+const LOSS_MAX  = 8;
 
 // Modalità operative
 const MODES = {
@@ -81,6 +89,33 @@ function evaluate(strategy, balance) {
   let newMode = state.currentMode;
   let reason = '';
   let adjustments = {};
+
+  // RISK ADJUSTMENT (autonomous — based on performance, independent of mode)
+  const goodPerf = fb.rollingWinRate > 55 && fb.profitFactor > 1.5 && fb.closedTrades >= 5;
+  const badPerf  = fb.rollingWinRate < 40 && fb.profitFactor < 0.8 && fb.closedTrades >= 5;
+  const currentRisk = strategy.riskPerTradePercent ?? 2;
+  const currentPos  = strategy.maxPositionPercent ?? 90;
+  const currentLoss = strategy.consecutiveLossLimit ?? 5;
+
+  let newRisk = currentRisk;
+  let newPos  = currentPos;
+  let newLoss = currentLoss;
+
+  if (goodPerf && currentRisk < RISK_MAX) {
+    newRisk = Math.min(RISK_MAX, Math.round((currentRisk + 0.5) * 10) / 10);
+    newPos  = Math.min(POS_MAX, currentPos + 10);
+  } else if (badPerf && currentRisk > RISK_MIN) {
+    newRisk = Math.max(RISK_MIN, Math.round((currentRisk - 0.5) * 10) / 10);
+    newPos  = Math.max(POS_MIN, currentPos - 10);
+    newLoss = Math.max(LOSS_MIN, currentLoss - 1);
+  }
+
+  if (newRisk !== currentRisk || newPos !== currentPos || newLoss !== currentLoss) {
+    adjustments.riskChanged = true;
+    adjustments.riskReason = goodPerf
+      ? `Performance stabile (WR ${fb.rollingWinRate}%, PF ${fb.profitFactor}) — aumento rischio graduale`
+      : `Performance in calo (WR ${fb.rollingWinRate}%, PF ${fb.profitFactor}) — riduco rischio`;
+  }
 
   // RECOVER: drawdown significativo con basso win rate
   if (totalPnl < -3.0 && fb.rollingWinRate < 40 && state.currentMode !== 'recover') {
@@ -157,6 +192,9 @@ function evaluate(strategy, balance) {
         profitFactor: fb.profitFactor,
         totalPnl: stats.totalPnl,
         trades: fb.closedTrades,
+        riskPerTradePercent: strategy.riskPerTradePercent,
+        maxPositionPercent: strategy.maxPositionPercent,
+        consecutiveLossLimit: strategy.consecutiveLossLimit,
         ts: new Date().toISOString(),
       };
     }
@@ -164,6 +202,15 @@ function evaluate(strategy, balance) {
     // Applica a strategy
     if (adjustments.minScore != null) {
       strategy.minConfidenceScore = adjustments.minScore;
+    }
+
+    // Applica risk adjustment (autonomous)
+    if (adjustments.riskChanged) {
+      strategy.riskPerTradePercent = newRisk;
+      strategy.maxPositionPercent  = newPos;
+      strategy.consecutiveLossLimit = newLoss;
+      if (!adjustments.message) adjustments.message = '';
+      adjustments.message += ` ${adjustments.riskReason}`;
     }
 
     // Se mode = flat, disattiva strategy
@@ -243,6 +290,8 @@ function afterTrade(strategy) {
         previousMode: state.preChangeStats.mode,
         currentMode: state.currentMode,
         tradesSinceChange: state.tradesSinceChange,
+        riskPerTradeAtChange: state.preChangeStats.riskPerTradePercent,
+        maxPositionAtChange: state.preChangeStats.maxPositionPercent,
       };
       logChangelog(alert);
       state.preChangeStats = null; // resetta per evitare alert ripetuti
