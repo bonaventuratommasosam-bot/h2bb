@@ -26,8 +26,8 @@ function appendTrade(trade) {
     mode: isLiveMode() ? 'live' : 'demo',
     pair: shared.strategy.pair,
   });
-  // FAILURE MEMORY: se il trade chiude in perdita, annota il contesto perche' il bot impari
-  if (trade && typeof trade.pnl === 'number' && trade.pnl < 0) {
+  // FAILURE MEMORY: solo trade LIVE in perdita — mai demo/simulati (altrimenti drift)
+  if (isLiveMode() && trade && typeof trade.pnl === 'number' && trade.pnl < 0) {
     try {
       const path = require('path');
       const memDir = path.join(DATA_DIR, 'memory');

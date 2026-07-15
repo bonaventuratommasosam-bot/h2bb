@@ -243,7 +243,10 @@ function recordChampionTrade(state, trade) {
 
   state.tradesSinceComparison = (state.tradesSinceComparison || 0) + 1;
 
-  if (state.postPromotionBaselinePF != null) {
+  // MODE-GATE: solo trade LIVE alimentano il rollback — demo/simulati non devono
+  // mai innescare un revert dei parametri promossi (altrimenti drift da dati finti)
+  const isLiveTrade = trade && trade.mode === 'live';
+  if (state.postPromotionBaselinePF != null && isLiveTrade) {
     state.postPromotionTrades.push(entry);
     if (state.postPromotionTrades.length > TRADES_FOR_COMPARE) {
       state.postPromotionTrades = state.postPromotionTrades.slice(-TRADES_FOR_COMPARE);
