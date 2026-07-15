@@ -13,15 +13,8 @@ const DATA_DIR = process.env.DATA_DIR || __dirname;
 const STATE_FILE = path.join(DATA_DIR, 'meta-controller-state.json');
 const CHANGELOG = path.join(DATA_DIR, 'strategy-changelog.jsonl');
 
-// Hard limit — il meta-controller può stringere, mai allentare oltre questi
-const HARD_LIMITS = {
-  minScoreMin: 45,
-  minScoreMax: 80,
-  sizeMinPercent: 0.2,    // 20% della size normale
-  sizeMaxPercent: 1.0,    // 100%
-  maxDrawdownAlert: -8,   // %
-  maxDailyLossAlert: -2,  // %
-};
+// AUTONOMY: nessun hard-limit — il bot gestisce liberamente score, size e risk.
+// Unico guard-rail: sanitize-strategy (blocca NaN/Inf, non le sue decisioni).
 
 // Modalità operative
 const MODES = {
@@ -94,7 +87,7 @@ function evaluate(strategy, balance) {
     newMode = 'recover';
     reason = `Drawdown $${Math.abs(totalPnl).toFixed(2)} con WR ${fb.rollingWinRate}% — Recovery mode`;
     adjustments = {
-      minScore: Math.min(HARD_LIMITS.minScoreMax, (strategy.minConfidenceScore || 55) + MODES.recover.scoreBoost),
+      minScore: (strategy.minConfidenceScore || 55) + MODES.recover.scoreBoost,
       sizeMultiplier: MODES.recover.sizePct,
       message: `Recovery attivato: size 30%, soglia +15. Uscita dopo 3 trade vincenti.`,
     };
@@ -105,7 +98,7 @@ function evaluate(strategy, balance) {
     newMode = 'reduce';
     reason = `Profit factor ${fb.profitFactor} — Riduco aggressività`;
     adjustments = {
-      minScore: Math.min(HARD_LIMITS.minScoreMax, (strategy.minConfidenceScore || 55) + MODES.reduce.scoreBoost),
+      minScore: (strategy.minConfidenceScore || 55) + MODES.reduce.scoreBoost,
       sizeMultiplier: MODES.reduce.sizePct,
       message: `Aggressività ridotta: size 50%, soglia +10. Profit factor rolling: ${fb.profitFactor}.`,
     };
@@ -116,7 +109,7 @@ function evaluate(strategy, balance) {
     newMode = 'reduce';
     reason = `Pattern rilevato: ${patternAlert.patterns[0].reason} (${patternAlert.patterns[0].count}x)`;
     adjustments = {
-      minScore: Math.min(HARD_LIMITS.minScoreMax, (strategy.minConfidenceScore || 55) + 5),
+      minScore: (strategy.minConfidenceScore || 55) + 5,
       sizeMultiplier: 0.7,
       message: `Pattern loss rilevato: ${patternAlert.message}`,
     };
