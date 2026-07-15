@@ -158,7 +158,9 @@ async function _runTickInternal() {
     : await autonomous.runTick(tickCtx);
 
   if (out?.blocked) shared.riskState = riskManager.loadRiskState();
-  if (out?.result?.ok || out?.signal) saveStrategy();
+  // AUTONOMY: persisti SEMPRE le modifiche autonome della strategia (meta-controller,
+  // shadow-engine, risk) — non solo sui segnali. Il bot e' padrone della sua config.
+  saveStrategy();
 
   // Shadow champion/challenger — riusa analysis del tick live, nessun ordine reale
   if (shared.strategy.mode === 'pro') {
