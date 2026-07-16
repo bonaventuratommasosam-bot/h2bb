@@ -1,58 +1,48 @@
-/* H2BB Dashboard — client */
+/* H2BB Minimondo — mondo vivo alimentato da /api/dashboard */
 (() => {
   const REFRESH_MS = 5000;
   let timer = null;
   let lastOk = false;
   let failCount = 0;
+  let waveT = 0;
 
   const $ = (id) => document.getElementById(id);
 
   function showBanner(html, kind = 'bad') {
-    let el = document.getElementById('error-banner');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'error-banner';
-      el.className = 'error-banner';
-      document.body.prepend(el);
-    }
+    const el = $('error-banner');
+    if (!el) return;
     el.className = `error-banner ${kind}`;
     el.innerHTML = html;
     el.hidden = !html;
   }
-
   function hideBanner() {
-    const el = document.getElementById('error-banner');
+    const el = $('error-banner');
     if (el) el.hidden = true;
   }
 
   function fmtMoney(n, digits = 2) {
-    if (n == null || Number.isNaN(n)) return '—';
-    const sign = n > 0 ? '+' : '';
-    return `${sign}$${Number(n).toFixed(digits)}`;
+    if (n == null || Number.isNaN(Number(n))) return '—';
+    const v = Number(n);
+    const sign = v > 0 ? '+' : '';
+    return `${sign}$${v.toFixed(digits)}`;
   }
-
   function fmtNum(n, digits = 2) {
-    if (n == null || Number.isNaN(n)) return '—';
+    if (n == null || Number.isNaN(Number(n))) return '—';
     return Number(n).toFixed(digits);
   }
-
   function fmtPct(n, digits = 2) {
-    if (n == null || Number.isNaN(n)) return '—';
-    const sign = n > 0 ? '+' : '';
-    return `${sign}${Number(n).toFixed(digits)}%`;
+    if (n == null || Number.isNaN(Number(n))) return '—';
+    const v = Number(n);
+    return `${v > 0 ? '+' : ''}${v.toFixed(digits)}%`;
   }
-
   function fmtUptime(sec) {
     if (sec == null) return '—';
     const s = Math.floor(sec);
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
-    const r = s % 60;
     if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${r}s`;
-    return `${r}s`;
+    return `${m}m ${s % 60}s`;
   }
-
   function fmtTime(ts) {
     if (!ts) return '—';
     try {
@@ -62,209 +52,146 @@
         day: '2-digit', month: '2-digit',
         hour: '2-digit', minute: '2-digit', second: '2-digit',
       });
-    } catch {
-      return '—';
-    }
+    } catch { return '—'; }
   }
-
   function setPill(el, text, cls) {
+    if (!el) return;
     el.textContent = text;
     el.className = 'pill' + (cls ? ` ${cls}` : '');
   }
-
   function pnlClass(n) {
-    if (n == null || Number.isNaN(n) || n === 0) return '';
-    return n > 0 ? 'good' : 'bad';
+    if (n == null || Number.isNaN(Number(n)) || Number(n) === 0) return '';
+    return Number(n) > 0 ? 'good' : 'bad';
   }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-  function clamp(v, a, b) {
-    return Math.max(a, Math.min(b, v));
-  }
-
-  function setMeter(fillId, valId, value, limitAbs, invert = true) {
-    const fill = $(fillId);
-    const label = $(valId);
-    if (value == null) {
-      fill.style.width = '0%';
-      label.textContent = '—';
-      fill.className = 'meter-fill';
-      return;
+  /* ----- Waves ----- */
+  function setWave(id, amp, phase, yBase) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const pts = [];
+    for (let x = 0; x <= 1200; x += 40) {
+      const y = yBase + Math.sin((x / 1200) * Math.PI * 4 + phase) * amp;
+      pts.push(`${x},${y}`);
     }
-    const used = invert ? Math.max(0, -value) : Math.max(0, value);
-    const pct = limitAbs > 0 ? clamp((used / limitAbs) * 100, 0, 100) : 0;
-    fill.style.width = `${pct}%`;
-    label.textContent = fmtPct(value);
-    fill.className = 'meter-fill' + (pct >= 85 ? ' bad' : pct >= 55 ? ' warn' : '');
+    el.setAttribute('d', `M0,220 L0,${yBase} ` + pts.map((p, i) => (i === 0 ? `L${p}` : `L${p}`)).join(' ') + ' L1200,220 Z');
+  }
+  function animateWaves() {
+    waveT += 0.04;
+    setWave('wave1', 10, waveT, 40);
+    setWave('wave2', 7, waveT * 0.7 + 1, 55);
+    requestAnimationFrame(animateWaves);
   }
 
-  function renderEquity(curve) {
-    const canvas = $('equity-chart');
-    const empty = $('chart-empty');
-    const ctx = canvas.getContext('2d');
-    const dpr = window.devicePixelRatio || 1;
-    const cssW = canvas.clientWidth || 600;
-    const cssH = 160;
-    canvas.width = Math.floor(cssW * dpr);
-    canvas.height = Math.floor(cssH * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cssW, cssH);
+  /* ----- World mood ----- */
+  function applyWorldMood(data) {
+    const sky = $('sky');
+    const eng = data.engine || {};
+    const mkt = data.market || {};
+    const risk = data.risk || {};
+    const light = $('tower-light');
+    const beam = $('tower-beam');
+    const storm = $('storm');
+    const ship = $('ship');
 
-    if (!curve || curve.length < 1) {
-      empty.classList.remove('hidden');
-      return;
-    }
-    empty.classList.add('hidden');
-
-    const pad = { t: 12, r: 12, b: 18, l: 40 };
-    const w = cssW - pad.l - pad.r;
-    const h = cssH - pad.t - pad.b;
-    const vals = curve.map((p) => p.cum);
-    let min = Math.min(...vals, 0);
-    let max = Math.max(...vals, 0);
-    if (min === max) { min -= 1; max += 1; }
-    const range = max - min;
-
-    // grid
-    ctx.strokeStyle = 'rgba(30,42,58,0.9)';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = pad.t + (h * i) / 4;
-      ctx.beginPath();
-      ctx.moveTo(pad.l, y);
-      ctx.lineTo(pad.l + w, y);
-      ctx.stroke();
+    sky.className = 'sky';
+    if (!eng.active) sky.classList.add('paused');
+    else if (risk.circuitBreaker || risk.blocked) sky.classList.add('storm');
+    else if (mkt.regime === 'trending' && (mkt.bias === 'long' || (mkt.score != null && mkt.effectiveMin != null && mkt.score >= mkt.effectiveMin))) {
+      sky.classList.add('bull');
+    } else if (mkt.bias === 'blocked' || (mkt.pnlUnrealized != null && mkt.pnlUnrealized < 0)) {
+      sky.classList.add('bear');
     }
 
-    // zero line
-    const zeroY = pad.t + h - ((0 - min) / range) * h;
-    ctx.strokeStyle = 'rgba(139,155,176,0.35)';
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(pad.l, zeroY);
-    ctx.lineTo(pad.l + w, zeroY);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // area + line
-    const pts = curve.map((p, i) => {
-      const x = pad.l + (curve.length === 1 ? w / 2 : (i / (curve.length - 1)) * w);
-      const y = pad.t + h - ((p.cum - min) / range) * h;
-      return { x, y, cum: p.cum };
-    });
-
-    const last = pts[pts.length - 1];
-    const good = last.cum >= 0;
-    const stroke = good ? '#34d399' : '#f87171';
-    const fillTop = good ? 'rgba(52,211,153,0.25)' : 'rgba(248,113,113,0.22)';
-
-    ctx.beginPath();
-    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-    ctx.lineTo(pts[pts.length - 1].x, zeroY);
-    ctx.lineTo(pts[0].x, zeroY);
-    ctx.closePath();
-    const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + h);
-    grad.addColorStop(0, fillTop);
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    ctx.beginPath();
-    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // labels
-    ctx.fillStyle = '#8b9bb0';
-    ctx.font = '10px ui-monospace, monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText(max.toFixed(1), pad.l - 4, pad.t + 8);
-    ctx.fillText(min.toFixed(1), pad.l - 4, pad.t + h);
-  }
-
-  function renderTrades(trades) {
-    const body = $('trades-body');
-    $('trades-count').textContent = trades?.length ? `${trades.length} mostrati` : '0';
-    if (!trades || !trades.length) {
-      body.innerHTML = '<tr><td colspan="6" class="muted">Nessun trade registrato</td></tr>';
-      return;
+    // Beacon = engine
+    light.className = 'tower-light';
+    beam.className = 'tower-beam';
+    if (!eng.active) {
+      /* off */
+    } else if (eng.circuitBreaker || eng.riskBlocked) {
+      light.classList.add('blocked');
+    } else {
+      light.classList.add('on');
+      beam.classList.add('on');
     }
-    body.innerHTML = trades.map((t) => {
-      const type = (t.type || t.side || '—').toLowerCase();
-      const cls = type.includes('buy') || type === 'long' ? 'badge-buy' : type.includes('sell') ? 'badge-sell' : '';
-      const pnl = t.pnl != null ? `<span class="${pnlClass(t.pnl)}">${fmtMoney(t.pnl)}</span>` : '—';
-      const qty = t.amount ?? t.size ?? t.qty ?? '—';
-      const price = t.price != null ? fmtNum(t.price, 2) : '—';
-      return `<tr>
-        <td class="mono">${fmtTime(t.ts || t.time || t.at)}</td>
-        <td class="${cls}">${type}</td>
-        <td>${t.pair || '—'}</td>
-        <td class="mono">${typeof qty === 'number' ? qty.toFixed(5) : qty}</td>
-        <td class="mono">${price}</td>
-        <td class="mono">${pnl}</td>
-      </tr>`;
-    }).join('');
-  }
 
-  function eventDetail(e) {
-    const skip = new Set(['ts', 'type']);
-    const parts = [];
-    for (const [k, v] of Object.entries(e || {})) {
-      if (skip.has(k) || v == null) continue;
-      if (typeof v === 'object') {
-        try { parts.push(`${k}=${JSON.stringify(v).slice(0, 80)}`); } catch { /* ignore */ }
+    // Storm cloud on risk
+    const dd = risk.drawdownPct;
+    const day = risk.dayPnlPct;
+    const stormy = !!(risk.circuitBreaker || risk.blocked
+      || (dd != null && dd <= -3)
+      || (day != null && day <= -1));
+    if (storm) storm.hidden = !stormy;
+
+    // Ship = open position on main pair
+    const pos = mkt.positionSigned || mkt.heldAmount || 0;
+    if (ship) {
+      if (Math.abs(pos) > 1e-9) {
+        ship.hidden = false;
+        ship.className = 'ship ' + (pos > 0 ? 'long' : 'short');
+        const lbl = $('ship-label');
+        if (lbl) {
+          lbl.textContent = `${pos > 0 ? 'LONG' : 'SHORT'} ${Math.abs(pos).toFixed(4)} · ${fmtMoney(mkt.pnlUnrealized)}`;
+        }
       } else {
-        parts.push(`${k}=${String(v).slice(0, 60)}`);
+        ship.hidden = true;
       }
-      if (parts.length >= 4) break;
     }
-    return parts.join(' · ') || '—';
+
+    $('world-pair').textContent = mkt.pair || eng.pair || 'ETH';
+    $('world-price').textContent = mkt.price != null ? `$${fmtNum(mkt.price)}` : '—';
+
+    // Orbs
+    const engLabel = !eng.active ? 'Faro spento' : eng.operational ? 'Faro acceso' : 'Tempesta';
+    $('orb-engine-val').textContent = engLabel;
+    $('orb-engine').className = 'orb' + (!eng.active ? ' warn' : eng.operational ? ' good' : ' bad');
+
+    $('orb-equity-val').textContent = data.balance?.equity != null ? `$${fmtNum(data.balance.equity)}` : '—';
+    $('orb-score-val').textContent = mkt.score != null
+      ? `${fmtNum(mkt.score, 0)}/${mkt.effectiveMin ?? '—'}`
+      : '—';
+    $('orb-score').className = 'orb' + (
+      mkt.score != null && mkt.effectiveMin != null && mkt.score >= mkt.effectiveMin ? ' good' : ''
+    );
+
+    let riskLabel = 'Calmo';
+    let riskCls = 'orb good';
+    if (risk.circuitBreaker) { riskLabel = 'CB'; riskCls = 'orb bad'; }
+    else if (risk.blocked) { riskLabel = 'Blocco'; riskCls = 'orb bad'; }
+    else if (dd != null && dd <= -2) { riskLabel = `DD ${fmtPct(dd)}`; riskCls = 'orb warn'; }
+    else if (day != null) { riskLabel = `G ${fmtPct(day)}`; riskCls = day < 0 ? 'orb warn' : 'orb good'; }
+    $('orb-risk-val').textContent = riskLabel;
+    $('orb-risk').className = riskCls;
+
+    // Thought bubble
+    const dec = data.strategy?.lastDecision || data.strategy?.lastSignal;
+    if (dec) {
+      $('thought-code').textContent = dec.reasonCode || dec.bias || 'decision';
+      $('thought-action').textContent = dec.action || '—';
+      $('thought-action').className = 'thought-action ' + (
+        dec.action === 'buy' || dec.action === 'add' ? 'good'
+          : dec.action === 'sell' || dec.action === 'blocked' ? 'bad' : ''
+      );
+      const sc = dec.score != null ? ` · score ${dec.score}${dec.minScore != null ? '/' + dec.minScore : ''}` : '';
+      $('thought-reason').textContent = (dec.reason || '') + sc;
+    } else {
+      $('thought-code').textContent = 'listening';
+      $('thought-action').textContent = eng.active ? 'scelgo la rotta…' : 'faro spento — osservo';
+      $('thought-reason').textContent = mkt.signals?.slice?.(0, 2)?.join(' · ') || '';
+    }
   }
 
-  function renderEvents(events) {
-    const body = $('events-body');
-    $('events-count').textContent = events?.length ? `${events.length} mostrati` : '0';
-    if (!events || !events.length) {
-      body.innerHTML = '<tr><td colspan="3" class="muted">Nessun evento in events.jsonl</td></tr>';
-      return;
-    }
-    body.innerHTML = events.map((e) => `<tr>
-      <td class="mono">${fmtTime(e.ts)}</td>
-      <td><span class="event-type">${e.type || '—'}</span></td>
-      <td class="muted">${eventDetail(e)}</td>
-    </tr>`).join('');
-  }
-
-  function renderStrategy(data) {
-    const s = data.strategy || {};
-    const kv = $('strategy-kv');
-    const rows = [
-      ['Pair', s.pair],
-      ['Mode', s.mode],
-      ['Active', s.active ? 'sì' : 'no'],
-      ['Min score', s.minConfidenceScore],
-      ['Risk/trade', s.riskPerTradePercent != null ? `${s.riskPerTradePercent}%` : '—'],
-      ['Max pos', s.maxPositionPercent != null ? `${s.maxPositionPercent}%` : '—'],
-      ['Day loss max', s.maxDailyLossPercent != null ? `${s.maxDailyLossPercent}%` : '—'],
-      ['Max DD', s.maxDrawdownPercent != null ? `${s.maxDrawdownPercent}%` : '—'],
-      ['Interval', s.intervalMinutes != null ? `${s.intervalMinutes}m` : '—'],
-      ['Tick', s.checkIntervalSeconds != null ? `${s.checkIntervalSeconds}s` : '—'],
-      ['ATR SL', s.atrStopMultiplier],
-      ['ATR TP1/2', `${s.atrTp1Multiplier ?? '—'} / ${s.atrTp2Multiplier ?? '—'}`],
-    ];
-    kv.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v ?? '—'}</dd>`).join('');
-    setPill($('strat-mode'), s.mode || '—', s.active ? 'pill-ok' : 'pill-warn');
-
-    const m = data.market || {};
-    const pos = $('position-kv');
-    pos.innerHTML = [
-      ['Held', m.heldAmount != null ? Number(m.heldAmount).toFixed(6) : '—'],
-      ['Entry avg', m.avgBuyPrice != null ? `$${fmtNum(m.avgBuyPrice)}` : '—'],
-      ['Invested', m.totalInvested != null ? `$${fmtNum(m.totalInvested)}` : '—'],
-      ['Regime', m.regime || '—'],
-      ['RSI', m.rsi != null ? fmtNum(m.rsi, 1) : '—'],
-      ['Wallet', data.wallet ? `${data.wallet.mode} ${data.wallet.address || ''}` : '—'],
-    ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+  function renderArchipelago(watchlist, mainPair) {
+    const root = $('archipelago');
+    if (!root) return;
+    const list = (watchlist || []).filter((w) => w.pair && String(w.pair).toUpperCase() !== String(mainPair || '').toUpperCase());
+    root.innerHTML = list.slice(0, 4).map((w, i) => `
+      <div class="sat-island i${i}" title="${w.pair}">
+        <div class="blob"></div>
+        <div class="name">${w.pair}</div>
+        <div class="px">${w.price != null ? '$' + fmtNum(w.price, w.pair === 'BTC' ? 0 : 2) : '—'}</div>
+      </div>
+    `).join('');
   }
 
   function renderSources(data) {
@@ -278,17 +205,16 @@
       ['balance', src.balance],
     ];
     row.innerHTML = items.map(([k, v]) => {
-      const ok = v && v !== 'none' && v !== 'unavailable' && v !== 'error' && v !== 'simulated';
-      const soft = v === 'simulated';
-      return `<span class="source-chip ${ok ? 'ok' : soft ? '' : 'bad'}">${k}: ${v || '—'}</span>`;
+      const ok = v && !['none', 'unavailable', 'error', 'simulated'].includes(v);
+      return `<span class="source-chip ${ok ? 'ok' : 'bad'}">${k}: ${v || '—'}</span>`;
     }).join('');
   }
 
   function renderWatchlist(list) {
     const el = $('watchlist');
     if (!el) return;
-    if (!list || !list.length) {
-      el.innerHTML = '<span class="muted small">Nessun prezzo</span>';
+    if (!list?.length) {
+      el.innerHTML = '<span class="muted small">Nessuna isola</span>';
       return;
     }
     el.innerHTML = list.map((w) => `
@@ -302,8 +228,8 @@
   function renderOpenPositions(positions) {
     const body = $('positions-body');
     if (!body) return;
-    if (!positions || !positions.length) {
-      body.innerHTML = '<tr><td colspan="5" class="muted">Nessuna posizione aperta su HL</td></tr>';
+    if (!positions?.length) {
+      body.innerHTML = '<tr><td colspan="4" class="muted">Mare calmo — nessuna nave</td></tr>';
       return;
     }
     body.innerHTML = positions.map((p) => {
@@ -312,183 +238,193 @@
         <td>${p.coin || '—'}</td>
         <td class="${sideCls}">${p.side || '—'}</td>
         <td class="mono">${fmtNum(Math.abs(p.size), 5)}</td>
-        <td class="mono">${p.entryPx != null ? fmtNum(p.entryPx, 2) : '—'}</td>
         <td class="mono ${pnlClass(p.unrealizedPnl)}">${fmtMoney(p.unrealizedPnl)}</td>
       </tr>`;
     }).join('');
   }
 
-  function renderConnect(data) {
-    const mode = data.dataMode || data.engine?.mode || 'demo';
-    const pill = $('data-mode-pill');
-    if (mode === 'live') setPill(pill, 'LIVE · HL API', 'pill-live');
-    else if (mode === 'observe') setPill(pill, 'OBSERVE · HL API', 'pill-observe');
-    else setPill(pill, 'NO WALLET', 'pill-warn');
-
-    const help = $('connect-help');
-    const hl = data.hlTruth;
-    if (data.connectHint) {
-      help.textContent = data.connectHint;
-    } else if (mode === 'observe' || mode === 'live') {
-      help.textContent = 'Solo numeri API Hyperliquid (allMids + clearinghouse + spot). Score/RSI = indicatori su candele HL, non campi nativi exchange.';
-    } else {
-      help.textContent = 'Senza address non mostriamo equity finta. Collega 0x… per dati portfolio reali.';
+  function renderTrades(trades) {
+    const body = $('trades-body');
+    if (!body) return;
+    if (!trades?.length) {
+      body.innerHTML = '<tr><td colspan="4" class="muted">Nessuna traccia ancora</td></tr>';
+      return;
     }
-
-    const status = $('connect-status');
-    if (hl) {
-      status.innerHTML =
-        `HL mid <code>$${fmtNum(hl.midPrice)}</code> · ` +
-        `perp AV <code>$${fmtNum(hl.perpsAccountValue)}</code> · ` +
-        `spot avail <code>$${fmtNum(hl.spotUsdcAvailable)}</code> · ` +
-        `pos <code>${hl.positionSize != null ? Number(hl.positionSize).toFixed(5) : '—'}</code> @ ` +
-        `<code>${fmtNum(hl.entryPx)}</code> · uPnL <code>${fmtMoney(hl.uPnL)}</code>` +
-        (data.balance?.lastUpdated ? ` · fetch ${fmtTime(data.balance.lastUpdated)}` : '');
-    } else if (data.wallet?.addressShort || data.wallet?.address) {
-      status.innerHTML = `Collegato: <code>${data.wallet.addressShort || data.wallet.address}</code>`;
-    } else {
-      status.textContent = 'Nessun address — equity/posizioni non mostrate (niente $ inventati).';
-    }
-
-    // prefill input if we have full address
-    const input = $('wallet-address');
-    if (input && data.wallet?.address && data.wallet.address.startsWith('0x') && data.wallet.address.length === 42) {
-      if (!input.dataset.touched) input.value = data.wallet.address;
-    }
-
-    renderSources(data);
+    body.innerHTML = trades.slice(0, 12).map((t) => {
+      const type = (t.type || t.side || '—').toLowerCase();
+      const cls = type.includes('buy') ? 'badge-buy' : type.includes('sell') ? 'badge-sell' : '';
+      const pnl = t.pnl != null ? `<span class="${pnlClass(t.pnl)}">${fmtMoney(t.pnl)}</span>` : '—';
+      return `<tr>
+        <td class="mono">${fmtTime(t.ts || t.time || t.at || t.timestamp)}</td>
+        <td class="${cls}">${type}</td>
+        <td>${t.pair || '—'}</td>
+        <td class="mono">${pnl}</td>
+      </tr>`;
+    }).join('');
   }
 
-  function render(data) {
+  function renderWorldKv(data) {
     const eng = data.engine || {};
     const mkt = data.market || {};
     const bal = data.balance || {};
     const risk = data.risk || {};
-    const perf = data.performance || {};
-    const dec = data.strategy?.lastDecision || data.strategy?.lastSignal || null;
+    const kv = $('world-kv');
+    if (!kv) return;
+    const rows = [
+      ['Engine', eng.active ? (eng.operational ? 'operativo' : 'bloccato') : 'pausa'],
+      ['Mode', data.dataMode || eng.mode || '—'],
+      ['Pair', mkt.pair || eng.pair],
+      ['Mid HL', mkt.price != null ? `$${fmtNum(mkt.price)}` : '—'],
+      ['Equity', bal.equity != null ? `$${fmtNum(bal.equity)}` : '—'],
+      ['Perp AV', bal.accountValuePerp != null ? `$${fmtNum(bal.accountValuePerp)}` : '—'],
+      ['Spot avail', bal.usdcSpotAvailable != null ? `$${fmtNum(bal.usdcSpotAvailable)}` : '—'],
+      ['Posizione', mkt.positionSigned != null && Math.abs(mkt.positionSigned) > 1e-9
+        ? `${fmtNum(mkt.positionSigned, 5)} @ ${fmtNum(mkt.avgBuyPrice)}`
+        : 'flat'],
+      ['uPnL', fmtMoney(mkt.pnlUnrealized)],
+      ['Score', mkt.score != null ? `${fmtNum(mkt.score, 0)} / ${mkt.effectiveMin}` : '—'],
+      ['Regime', mkt.regime || '—'],
+      ['RSI', mkt.rsi != null ? fmtNum(mkt.rsi, 1) : '—'],
+      ['Funding', mkt.funding != null ? (mkt.funding * 100).toFixed(4) + '%' : '—'],
+      ['Uptime', fmtUptime(eng.uptime)],
+      ['DD', risk.drawdownPct != null ? fmtPct(risk.drawdownPct) : '—'],
+      ['Giorno', risk.dayPnlPct != null ? fmtPct(risk.dayPnlPct) : '—'],
+    ];
+    kv.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v ?? '—'}</dd>`).join('');
 
-    // connection
-    setPill($('conn'), 'online', 'pill-ok');
-    lastOk = true;
-    const mode = data.dataMode || eng.mode || 'demo';
+    const hl = data.hlTruth;
+    const line = $('hl-truth-line');
+    if (line) {
+      if (hl) {
+        line.innerHTML = `HL grezzo · mid <code>$${fmtNum(hl.midPrice)}</code> · perp <code>$${fmtNum(hl.perpsAccountValue)}</code> · spot avail <code>$${fmtNum(hl.spotUsdcAvailable)}</code>`;
+      } else {
+        line.textContent = data.connectHint || 'Senza address: solo mare (prezzi), niente tesoro (portfolio).';
+      }
+    }
+  }
+
+  function renderConnect(data) {
+    const mode = data.dataMode || data.engine?.mode || 'demo';
     if (mode === 'live') setPill($('mode-pill'), 'LIVE', 'pill-live');
     else if (mode === 'observe') setPill($('mode-pill'), 'OBSERVE', 'pill-observe');
-    else setPill($('mode-pill'), 'DEMO', 'pill-demo');
+    else setPill($('mode-pill'), 'NO WALLET', 'pill-warn');
 
+    const help = $('connect-help');
+    if (help) {
+      if (data.connectHint) help.textContent = data.connectHint;
+      else if (mode === 'observe' || mode === 'live') {
+        help.textContent = 'Minimondo su dati API Hyperliquid. Faro = engine trading.';
+      } else {
+        help.textContent = 'Collega 0x… per far comparire il tesoro (equity/posizioni).';
+      }
+    }
+    const status = $('connect-status');
+    if (status) {
+      if (data.wallet?.addressShort || data.wallet?.address) {
+        status.innerHTML = `Isola collegata: <code>${data.wallet.addressShort || data.wallet.address}</code> · ${data.balance?.source || '—'}`;
+      } else {
+        status.textContent = 'Nessun address — portfolio nascosto (niente numeri inventati).';
+      }
+    }
+    const input = $('wallet-address');
+    if (input && data.wallet?.address?.length === 42 && !input.dataset.touched) {
+      input.value = data.wallet.address;
+    }
+    renderSources(data);
+  }
+
+  function renderEquity(curve) {
+    const canvas = $('equity-chart');
+    const empty = $('chart-empty');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = canvas.clientWidth || 360;
+    const cssH = 120;
+    canvas.width = Math.floor(cssW * dpr);
+    canvas.height = Math.floor(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    if (!curve?.length) {
+      empty?.classList.remove('hidden');
+      return;
+    }
+    empty?.classList.add('hidden');
+
+    const pad = { t: 10, r: 8, b: 14, l: 32 };
+    const w = cssW - pad.l - pad.r;
+    const h = cssH - pad.t - pad.b;
+    const vals = curve.map((p) => p.cum);
+    let min = Math.min(...vals, 0);
+    let max = Math.max(...vals, 0);
+    if (min === max) { min -= 1; max += 1; }
+    const range = max - min;
+    const zeroY = pad.t + h - ((0 - min) / range) * h;
+
+    ctx.strokeStyle = 'rgba(51,65,85,0.9)';
+    for (let i = 0; i <= 3; i++) {
+      const y = pad.t + (h * i) / 3;
+      ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + w, y); ctx.stroke();
+    }
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = 'rgba(148,163,184,0.35)';
+    ctx.beginPath(); ctx.moveTo(pad.l, zeroY); ctx.lineTo(pad.l + w, zeroY); ctx.stroke();
+    ctx.setLineDash([]);
+
+    const pts = curve.map((p, i) => ({
+      x: pad.l + (curve.length === 1 ? w / 2 : (i / (curve.length - 1)) * w),
+      y: pad.t + h - ((p.cum - min) / range) * h,
+      cum: p.cum,
+    }));
+    const good = pts[pts.length - 1].cum >= 0;
+    const stroke = good ? '#4ade80' : '#f87171';
+
+    ctx.beginPath();
+    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.lineTo(pts[pts.length - 1].x, zeroY);
+    ctx.lineTo(pts[0].x, zeroY);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + h);
+    grad.addColorStop(0, good ? 'rgba(74,222,128,0.28)' : 'rgba(248,113,113,0.25)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.beginPath();
+    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  function renderStats(perf) {
+    const el = $('stats-mini');
+    if (!el) return;
+    if (!perf?.closedTrades) {
+      el.innerHTML = '<span>nessun trade chiuso</span>';
+      return;
+    }
+    el.innerHTML = [
+      `WR ${perf.winRate}%`,
+      `PnL ${fmtMoney(perf.totalPnl)}`,
+      `PF ${fmtNum(perf.profitFactor)}`,
+      `n=${perf.closedTrades}`,
+    ].map((t) => `<span>${t}</span>`).join('');
+  }
+
+  function render(data) {
+    setPill($('conn'), 'online', 'pill-ok');
+    lastOk = true;
+    applyWorldMood(data);
     renderConnect(data);
+    renderArchipelago(data.watchlist, data.market?.pair || data.engine?.pair);
     renderWatchlist(data.watchlist);
     renderOpenPositions(data.openPositions);
-
-    // KPIs — PAUSA = strategy.active false (niente ordini), server HTTP resta su
-    const engLabel = !eng.active ? 'PAUSA' : eng.operational ? 'OPERATIVO' : 'BLOCCATO';
-    $('kpi-engine').textContent = engLabel;
-    $('kpi-engine').className = 'kpi-value ' + (!eng.active ? 'warn' : eng.operational ? 'good' : 'bad');
-    $('kpi-engine-sub').textContent = !eng.active
-      ? 'trading off · clicca ▶ Avvia engine (default sicuro)'
-      : eng.circuitBreaker
-        ? (eng.circuitReason || 'circuit breaker')
-        : eng.riskBlocked
-          ? 'risk blocked'
-          : `${eng.pair || '—'} · ordini automatici ON`;
-
-    $('kpi-price').textContent = mkt.price != null ? `$${fmtNum(mkt.price)}` : '—';
-    $('kpi-pair-sub').textContent = `${mkt.pair || eng.pair || '—'} · regime ${mkt.regime || 'n/d'}`;
-
-    $('kpi-equity').textContent = bal.equity != null ? `$${fmtNum(bal.equity)}` : '—';
-    const eqBits = [];
-    if (bal.accountValuePerp != null) eqBits.push(`perp AV $${fmtNum(bal.accountValuePerp)}`);
-    if (bal.usdcSpotAvailable != null) eqBits.push(`spot avail $${fmtNum(bal.usdcSpotAvailable)}`);
-    else if (bal.usdcSpot != null) eqBits.push(`spot $${fmtNum(bal.usdcSpot)}`);
-    if (bal.source) eqBits.push(bal.source);
-    $('kpi-equity-sub').textContent = eqBits.join(' · ') || 'nessun dato HL';
-
-    $('kpi-pnl').textContent = fmtMoney(mkt.pnlUnrealized);
-    $('kpi-pnl').className = 'kpi-value mono ' + pnlClass(mkt.pnlUnrealized);
-    $('kpi-pnl-sub').textContent = mkt.heldAmount
-      ? `${fmtNum(mkt.heldAmount, 5)} · ${fmtPct(mkt.pnlPercent)}`
-      : 'flat';
-
-    const score = mkt.score;
-    const min = mkt.effectiveMin;
-    $('kpi-score').textContent = score != null ? `${fmtNum(score, 0)}` : '—';
-    $('kpi-score-sub').textContent = min != null
-      ? `soglia ${min} · da candele HL`
-      : 'indicatore motore';
-    if (score != null && min != null) {
-      $('kpi-score').className = 'kpi-value mono ' + (score >= min ? 'good' : score >= min - 8 ? 'warn' : '');
-    }
-
-    $('kpi-uptime').textContent = fmtUptime(eng.uptime);
-    const hb = data.heartbeat;
-    if (hb?.lastTickAt) {
-      const age = Math.round((Date.now() - hb.lastTickAt) / 1000);
-      $('kpi-uptime-sub').textContent = `tick ${age}s fa · #${hb.tickCount ?? '—'}`;
-    } else {
-      $('kpi-uptime-sub').textContent = 'no heartbeat';
-    }
-
-    // Decision
-    if (dec) {
-      $('decision-code').textContent = dec.reasonCode || 'unknown';
-      $('decision-action').textContent = dec.action || '—';
-      $('decision-action').className = 'decision-action ' + (
-        dec.action === 'buy' || dec.action === 'add' ? 'good'
-          : dec.action === 'sell' ? 'bad'
-            : dec.action === 'blocked' ? 'bad' : ''
-      );
-      const sc = dec.score != null ? ` · score ${dec.score}${dec.minScore != null ? '/' + dec.minScore : ''}` : '';
-      $('decision-reason').textContent = (dec.reason || '—') + sc;
-      $('decision-time').textContent = fmtTime(dec.at);
-    } else {
-      $('decision-code').textContent = '—';
-      $('decision-action').textContent = '—';
-      $('decision-reason').textContent = 'In attesa del primo tick…';
-      $('decision-time').textContent = '—';
-    }
-
-    // Risk
-    if (risk.circuitBreaker || risk.blocked) {
-      setPill($('risk-badge'), risk.circuitBreaker ? 'CB ON' : 'BLOCKED', 'pill-bad');
-    } else {
-      setPill($('risk-badge'), 'OK', 'pill-ok');
-    }
-    const dayLim = data.strategy?.maxDailyLossPercent ?? data.hardCaps?.maxDailyLossPercent ?? 2;
-    const ddLim = data.strategy?.maxDrawdownPercent ?? data.hardCaps?.maxDrawdownPercent ?? 8;
-    const lossLim = data.strategy?.consecutiveLossLimit ?? data.hardCaps?.consecutiveLossLimit ?? 3;
-    setMeter('meter-day', 'meter-day-val', risk.dayPnlPct, dayLim, true);
-    setMeter('meter-dd', 'meter-dd-val', risk.drawdownPct, ddLim, true);
-    const losses = risk.consecutiveLosses || 0;
-    const lossPct = lossLim > 0 ? (losses / lossLim) * 100 : 0;
-    $('meter-loss').style.width = `${clamp(lossPct, 0, 100)}%`;
-    $('meter-loss').className = 'meter-fill' + (lossPct >= 85 ? ' bad' : lossPct >= 50 ? ' warn' : '');
-    $('meter-loss-val').textContent = `${losses}/${lossLim}`;
-    $('risk-text').textContent = risk.statusText || '—';
-
-    const caps = data.hardCaps || {};
-    $('caps-row').innerHTML = [
-      [`risk≤${caps.riskPerTradePercent}%`, caps.riskPerTradePercent],
-      [`pos≤${caps.maxPositionPercent}%`, caps.maxPositionPercent],
-      [`day−${caps.maxDailyLossPercent}%`, caps.maxDailyLossPercent],
-      [`DD−${caps.maxDrawdownPercent}%`, caps.maxDrawdownPercent],
-    ].filter(([, v]) => v != null).map(([t]) => `<span class="cap-chip">${t}</span>`).join('');
-
-    // Performance
-    $('perf-pair').textContent = mkt.pair || eng.pair || '—';
-    $('st-wr').textContent = perf.closedTrades ? `${perf.winRate}%` : '—';
-    $('st-pnl').textContent = perf.closedTrades ? fmtMoney(perf.totalPnl) : '—';
-    $('st-pnl').className = pnlClass(perf.totalPnl);
-    $('st-pf').textContent = perf.closedTrades ? fmtNum(perf.profitFactor) : '—';
-    $('st-closed').textContent = `${perf.closedTrades ?? 0} / ${perf.totalTrades ?? 0}`;
-    $('st-exp').textContent = perf.closedTrades ? fmtMoney(perf.expectancy) : '—';
-    $('st-bw').textContent = perf.closedTrades
-      ? `${fmtMoney(perf.bestTrade)} / ${fmtMoney(perf.worstTrade)}`
-      : '—';
-
+    renderTrades(data.trades);
+    renderWorldKv(data);
     renderEquity(data.equityCurve || []);
-    renderStrategy(data);
-    renderTrades(data.trades || []);
-    renderEvents(data.events || []);
-
+    renderStats(data.performance);
     $('last-fetch').textContent = `agg. ${fmtTime(data.ts || Date.now())}`;
     $('refresh-sec').textContent = String(REFRESH_MS / 1000);
   }
@@ -497,38 +433,25 @@
     setPill($('conn'), 'offline', 'pill-bad');
     lastOk = false;
     failCount += 1;
-    $('kpi-engine').textContent = 'OFFLINE';
-    $('kpi-engine').className = 'kpi-value bad';
-    $('kpi-engine-sub').textContent = err || 'API non raggiungibile';
-    $('last-fetch').textContent = `errore · ${fmtTime(Date.now())}`;
-
     const port = location.port || '40001';
     showBanner(
-      `<strong>Bot non raggiungibile</strong> — ${err || 'fetch failed'}<br/>
-       1. Avvia il bot: <code>cd h2bb && npm start</code><br/>
-       2. Apri <code>http://127.0.0.1:${port}/</code> (meglio di <code>localhost</code> su Windows)<br/>
-       3. Non aprire il file HTML da disco (<code>file://</code>) — serve il server Node<br/>
-       4. Verifica: <code>http://127.0.0.1:${port}/api/ping</code>`,
+      `<strong>Minimondo offline</strong> — ${err || 'API non raggiungibile'}<br/>
+       Avvia il bot: <code>npm start</code> · apri <code>http://127.0.0.1:${port}/</code> · non usare file://`,
       'bad'
     );
+    $('thought-action').textContent = 'nebbia…';
+    $('thought-reason').textContent = err || 'server assente';
+    $('orb-engine-val').textContent = 'Offline';
   }
 
   async function fetchDashboard() {
-    // file:// non può chiamare l'API
     if (location.protocol === 'file:') {
       renderError('pagina aperta come file://');
-      showBanner(
-        `<strong>Apri la dashboard dal bot, non dal file.</strong><br/>
-         Esegui <code>npm start</code> nella cartella h2bb, poi vai su
-         <code>http://127.0.0.1:40001/</code>`,
-        'bad'
-      );
       return;
     }
-
     try {
       const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 8000);
+      const t = setTimeout(() => ctrl.abort(), 12000);
       const res = await fetch('/api/dashboard', { cache: 'no-store', signal: ctrl.signal });
       clearTimeout(t);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -538,13 +461,9 @@
       hideBanner();
       render(data);
     } catch (e) {
-      const msg = e.name === 'AbortError' ? 'timeout API (8s)' : (e.message || String(e));
+      const msg = e.name === 'AbortError' ? 'timeout API' : (e.message || String(e));
       renderError(msg);
     }
-  }
-
-  function tickClock() {
-    $('clock').textContent = new Date().toLocaleTimeString('it-IT');
   }
 
   async function connectWallet(ev) {
@@ -552,11 +471,8 @@
     const input = $('wallet-address');
     const status = $('connect-status');
     const address = (input?.value || '').trim();
-    if (!address) {
-      status.textContent = 'Inserisci un address 0x…';
-      return;
-    }
-    status.textContent = 'Connessione…';
+    if (!address) { status.textContent = 'Inserisci un address 0x…'; return; }
+    status.textContent = 'Ancoro l’isola…';
     try {
       const res = await fetch('/api/wallet/connect', {
         method: 'POST',
@@ -565,7 +481,7 @@
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'connect failed');
-      status.innerHTML = `OK — observe su <code>${data.address.slice(0, 6)}…${data.address.slice(-4)}</code>`;
+      status.innerHTML = `Isola ok: <code>${data.address.slice(0, 6)}…${data.address.slice(-4)}</code>`;
       await fetchDashboard();
     } catch (e) {
       status.textContent = `Errore: ${e.message}`;
@@ -574,11 +490,11 @@
 
   async function refreshMarket() {
     const status = $('connect-status');
-    status.textContent = 'Aggiorno mercato HL…';
+    status.textContent = 'Vento di mercato…';
     try {
       await fetch('/api/market/refresh', { method: 'POST' });
       await fetchDashboard();
-      status.textContent = 'Mercato aggiornato.';
+      status.textContent = 'Mare aggiornato.';
     } catch (e) {
       status.textContent = `Refresh fallito: ${e.message}`;
     }
@@ -586,54 +502,50 @@
 
   async function setEngineActive(active) {
     const status = $('connect-status');
-    const path = active ? '/resume' : '/pause';
     if (active) {
       const ok = window.confirm(
-        'Avviare il trading automatico?\n\n' +
-        '• In DEMO/OBSERVE: ordini SIMULATI (paper), non su Hyperliquid.\n' +
-        '• In LIVE (con API key): ordini REALI sul wallet.\n\n' +
-        'Confermi?'
+        'Accendere il faro (trading automatico)?\n\n' +
+        '• DEMO/OBSERVE → ordini paper\n' +
+        '• LIVE → ordini reali su Hyperliquid'
       );
       if (!ok) return;
     }
-    status.textContent = active ? 'Avvio trading…' : 'Metto in pausa…';
+    status.textContent = active ? 'Accendo il faro…' : 'Spengo il faro…';
     try {
-      const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const res = await fetch(active ? '/resume' : '/pause', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'comando fallito');
-      status.textContent = active
-        ? 'Engine ATTIVO — trading automatico ON (vedi mode DEMO/LIVE).'
-        : 'Engine in PAUSA — solo lettura dati, zero ordini automatici.';
+      status.textContent = active ? 'Faro acceso — Hermes naviga.' : 'Faro spento — solo osservazione.';
       await fetchDashboard();
     } catch (e) {
       status.textContent = `Errore: ${e.message}`;
     }
   }
 
-  function start() {
-    $('btn-refresh').addEventListener('click', () => fetchDashboard());
-    const form = $('connect-form');
-    if (form) form.addEventListener('submit', connectWallet);
-    const input = $('wallet-address');
-    if (input) input.addEventListener('input', () => { input.dataset.touched = '1'; });
-    const btnM = $('btn-refresh-market');
-    if (btnM) btnM.addEventListener('click', refreshMarket);
-    const btnR = $('btn-resume');
-    if (btnR) btnR.addEventListener('click', () => setEngineActive(true));
-    const btnP = $('btn-pause');
-    if (btnP) btnP.addEventListener('click', () => setEngineActive(false));
-    tickClock();
-    setInterval(tickClock, 1000);
-    fetchDashboard();
-    timer = setInterval(fetchDashboard, REFRESH_MS);
-    window.addEventListener('resize', () => {
-      if (lastOk) fetchDashboard();
-    });
+  function tickClock() {
+    const el = $('clock');
+    if (el) el.textContent = new Date().toLocaleTimeString('it-IT');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', start);
-  } else {
-    start();
+  function start() {
+    $('btn-refresh')?.addEventListener('click', () => fetchDashboard());
+    $('connect-form')?.addEventListener('submit', connectWallet);
+    $('wallet-address')?.addEventListener('input', (e) => { e.target.dataset.touched = '1'; });
+    $('btn-refresh-market')?.addEventListener('click', refreshMarket);
+    $('btn-resume')?.addEventListener('click', () => setEngineActive(true));
+    $('btn-pause')?.addEventListener('click', () => setEngineActive(false));
+    tickClock();
+    setInterval(tickClock, 1000);
+    animateWaves();
+    fetchDashboard();
+    timer = setInterval(fetchDashboard, REFRESH_MS);
+    window.addEventListener('resize', () => { if (lastOk) fetchDashboard(); });
   }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
 })();

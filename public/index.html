@@ -3,252 +3,200 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>H2BB · Hermes Dashboard</title>
+  <title>H2BB · Minimondo Hermes</title>
   <link rel="stylesheet" href="/dashboard.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏝️</text></svg>" />
 </head>
-<body>
-  <div class="bg-grid"></div>
-  <header class="topbar">
-    <div class="brand">
-      <span class="logo">⚡</span>
-      <div>
-        <h1>H2BB <span class="muted">/ Hermes</span></h1>
-        <p class="tagline">Hyperliquid · risk-first · autonomous</p>
-      </div>
-    </div>
-    <div class="topbar-right">
-      <div id="conn" class="pill pill-warn">connecting…</div>
-      <div id="mode-pill" class="pill">—</div>
-      <div id="clock" class="clock">—</div>
-      <button type="button" id="btn-refresh" class="btn" title="Aggiorna ora">↻</button>
-    </div>
-  </header>
+<body class="world-body">
+  <div id="error-banner" class="error-banner" hidden></div>
 
-  <main class="layout">
-    <!-- Connect wallet (real data) -->
-    <section class="card connect-card" id="connect-card">
-      <div class="card-head">
-        <h2>Dati reali Hyperliquid</h2>
-        <span id="data-mode-pill" class="pill">—</span>
+  <!-- SKY + WORLD -->
+  <div class="stage" id="stage">
+    <div class="sky" id="sky">
+      <div class="stars" id="stars"></div>
+      <div class="clouds" id="clouds"></div>
+      <div class="celestial" id="celestial" aria-hidden="true"></div>
+      <div class="aurora" id="aurora"></div>
+    </div>
+
+    <svg class="sea" viewBox="0 0 1200 220" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="seaGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#0c4a6e" stop-opacity="0.55"/>
+          <stop offset="100%" stop-color="#020617" stop-opacity="0.95"/>
+        </linearGradient>
+      </defs>
+      <path id="wave1" class="wave" fill="url(#seaGrad)" d=""/>
+      <path id="wave2" class="wave wave-slow" fill="#0369a4" opacity="0.25" d=""/>
+    </svg>
+
+    <!-- Mini-world canvas -->
+    <div class="archipelago" id="archipelago">
+      <!-- islands injected by JS -->
+    </div>
+
+    <!-- Hermes beacon / engine tower (center) -->
+    <div class="beacon-wrap" id="beacon-wrap">
+      <div class="island-main" id="island-main">
+        <div class="island-soil"></div>
+        <div class="island-top"></div>
+        <div class="tower" id="tower">
+          <div class="tower-body"></div>
+          <div class="tower-light" id="tower-light"></div>
+          <div class="tower-beam" id="tower-beam"></div>
+        </div>
+        <div class="hermes" id="hermes" title="Hermes">☿</div>
+        <div class="ship" id="ship" hidden>
+          <span class="ship-icon">⛵</span>
+          <span class="ship-label" id="ship-label"></span>
+        </div>
+        <div class="storm" id="storm" hidden>⛈️</div>
       </div>
-      <p class="connect-help muted" id="connect-help">
-        Solo dati API Hyperliquid — niente balance finti. Collega l’address 0x… (sola lettura)
-        per equity/posizioni ufficiali. Prezzi = allMids HL.
-      </p>
+      <div class="island-label">
+        <strong id="world-pair">ETH</strong>
+        <span id="world-price" class="mono">—</span>
+      </div>
+    </div>
+
+    <!-- Floating status orbs -->
+    <div class="orbs">
+      <div class="orb" id="orb-engine" data-tip="Engine">
+        <span class="orb-icon">⚡</span>
+        <span class="orb-val" id="orb-engine-val">—</span>
+      </div>
+      <div class="orb" id="orb-equity" data-tip="Equity">
+        <span class="orb-icon">💎</span>
+        <span class="orb-val mono" id="orb-equity-val">—</span>
+      </div>
+      <div class="orb" id="orb-score" data-tip="Score">
+        <span class="orb-icon">🎯</span>
+        <span class="orb-val mono" id="orb-score-val">—</span>
+      </div>
+      <div class="orb" id="orb-risk" data-tip="Rischio">
+        <span class="orb-icon">🛡️</span>
+        <span class="orb-val" id="orb-risk-val">—</span>
+      </div>
+    </div>
+
+    <!-- Decision cloud -->
+    <div class="thought" id="thought">
+      <div class="thought-code" id="thought-code">—</div>
+      <div class="thought-action" id="thought-action">ascolto il mercato…</div>
+      <div class="thought-reason" id="thought-reason"></div>
+    </div>
+  </div>
+
+  <!-- SIDE PANEL -->
+  <aside class="panel" id="panel">
+    <header class="panel-head">
+      <div>
+        <h1>Minimondo <span class="muted">Hermes</span></h1>
+        <p class="tagline">Hyperliquid · dati reali · mondo vivo</p>
+      </div>
+      <div class="panel-pills">
+        <span id="conn" class="pill pill-warn">…</span>
+        <span id="mode-pill" class="pill">—</span>
+        <span id="clock" class="clock">—</span>
+        <button type="button" id="btn-refresh" class="btn" title="Aggiorna">↻</button>
+      </div>
+    </header>
+
+    <section class="panel-card">
+      <h2>Collegamento</h2>
+      <p class="muted small" id="connect-help">Collega address 0x… per equity e posizioni HL.</p>
       <form id="connect-form" class="connect-form" autocomplete="off">
-        <input
-          type="text"
-          id="wallet-address"
-          name="address"
-          placeholder="0x… address Hyperliquid"
-          spellcheck="false"
-          maxlength="42"
-        />
-        <button type="submit" class="btn-primary">Collega</button>
-        <button type="button" id="btn-refresh-market" class="btn-secondary">Aggiorna mercato</button>
-        <button type="button" id="btn-resume" class="btn-primary" title="Attiva trading automatico">▶ Avvia engine</button>
-        <button type="button" id="btn-pause" class="btn-secondary" title="Ferma ordini automatici">⏸ Pausa</button>
+        <input type="text" id="wallet-address" placeholder="0x… address Hyperliquid" spellcheck="false" maxlength="42" />
+        <div class="btn-row">
+          <button type="submit" class="btn-primary">Collega</button>
+          <button type="button" id="btn-refresh-market" class="btn-secondary">Mercato</button>
+        </div>
+        <div class="btn-row">
+          <button type="button" id="btn-resume" class="btn-primary">▶ Accendi faro</button>
+          <button type="button" id="btn-pause" class="btn-secondary">⏸ Spegni faro</button>
+        </div>
       </form>
       <p id="connect-status" class="connect-status muted small"></p>
       <div class="sources-row" id="sources-row"></div>
+      <span id="data-mode-pill" class="pill" hidden>—</span>
     </section>
 
-    <!-- Watchlist -->
-    <section class="card watchlist-card" id="watchlist-card">
-      <div class="card-head">
-        <h2>Watchlist live</h2>
-        <span class="muted small">mid Hyperliquid</span>
-      </div>
+    <section class="panel-card">
+      <h2>Stato del mondo</h2>
+      <dl class="kv" id="world-kv"></dl>
+      <p class="muted small" id="hl-truth-line"></p>
+    </section>
+
+    <section class="panel-card">
+      <h2>Isole mercato</h2>
       <div class="watchlist" id="watchlist"></div>
     </section>
 
-    <!-- Row: KPIs -->
-    <section class="kpis" id="kpis">
-      <article class="card kpi">
-        <span class="kpi-label">Engine</span>
-        <strong id="kpi-engine" class="kpi-value">—</strong>
-        <span id="kpi-engine-sub" class="kpi-sub">—</span>
-      </article>
-      <article class="card kpi">
-        <span class="kpi-label">Pair / Prezzo</span>
-        <strong id="kpi-price" class="kpi-value mono">—</strong>
-        <span id="kpi-pair-sub" class="kpi-sub">—</span>
-      </article>
-      <article class="card kpi">
-        <span class="kpi-label">Equity / USDC</span>
-        <strong id="kpi-equity" class="kpi-value mono">—</strong>
-        <span id="kpi-equity-sub" class="kpi-sub">—</span>
-      </article>
-      <article class="card kpi">
-        <span class="kpi-label">PnL non real.</span>
-        <strong id="kpi-pnl" class="kpi-value mono">—</strong>
-        <span id="kpi-pnl-sub" class="kpi-sub">posizione</span>
-      </article>
-      <article class="card kpi">
-        <span class="kpi-label">Score</span>
-        <strong id="kpi-score" class="kpi-value mono">—</strong>
-        <span id="kpi-score-sub" class="kpi-sub">soglia</span>
-      </article>
-      <article class="card kpi">
-        <span class="kpi-label">Uptime</span>
-        <strong id="kpi-uptime" class="kpi-value mono">—</strong>
-        <span id="kpi-uptime-sub" class="kpi-sub">heartbeat</span>
-      </article>
+    <section class="panel-card">
+      <h2>Flotta (posizioni)</h2>
+      <div class="table-scroll compact">
+        <table>
+          <thead>
+            <tr><th>Coin</th><th>Side</th><th>Size</th><th>uPnL</th></tr>
+          </thead>
+          <tbody id="positions-body">
+            <tr><td colspan="4" class="muted">Mare calmo — nessuna nave</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
-    <div class="grid-2">
-      <!-- Decision -->
-      <section class="card">
-        <div class="card-head">
-          <h2>Ultima decisione</h2>
-          <span id="decision-time" class="muted small">—</span>
-        </div>
-        <div id="decision-body" class="decision">
-          <div class="decision-code" id="decision-code">—</div>
-          <div class="decision-action" id="decision-action">—</div>
-          <p id="decision-reason" class="decision-reason">In attesa del primo tick…</p>
-        </div>
-      </section>
+    <section class="panel-card">
+      <h2>Tracce (trade)</h2>
+      <div class="table-scroll compact">
+        <table>
+          <thead>
+            <tr><th>Quando</th><th>Tipo</th><th>Pair</th><th>PnL</th></tr>
+          </thead>
+          <tbody id="trades-body">
+            <tr><td colspan="4" class="muted">Nessuna traccia</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
-      <!-- Risk -->
-      <section class="card">
-        <div class="card-head">
-          <h2>Rischio</h2>
-          <span id="risk-badge" class="pill">—</span>
-        </div>
-        <div class="meters">
-          <div class="meter">
-            <div class="meter-label"><span>Giorno</span><span id="meter-day-val">—</span></div>
-            <div class="meter-track"><div id="meter-day" class="meter-fill"></div></div>
-          </div>
-          <div class="meter">
-            <div class="meter-label"><span>Drawdown</span><span id="meter-dd-val">—</span></div>
-            <div class="meter-track"><div id="meter-dd" class="meter-fill"></div></div>
-          </div>
-          <div class="meter">
-            <div class="meter-label"><span>Loss consecutive</span><span id="meter-loss-val">—</span></div>
-            <div class="meter-track"><div id="meter-loss" class="meter-fill"></div></div>
-          </div>
-        </div>
-        <pre id="risk-text" class="risk-text muted">—</pre>
-        <div class="caps-row" id="caps-row"></div>
-      </section>
-    </div>
+    <section class="panel-card">
+      <h2>Curva equity</h2>
+      <div class="chart-wrap">
+        <canvas id="equity-chart" width="400" height="120"></canvas>
+        <p id="chart-empty" class="muted small chart-empty">Ancora nessuna isola conquistata (trade chiusi).</p>
+      </div>
+      <div class="stats-mini" id="stats-mini"></div>
+    </section>
 
-    <div class="grid-2">
-      <!-- Performance + curve -->
-      <section class="card">
-        <div class="card-head">
-          <h2>Performance</h2>
-          <span id="perf-pair" class="muted small">—</span>
-        </div>
-        <div class="stats-grid" id="stats-grid">
-          <div class="stat"><span>Win rate</span><strong id="st-wr">—</strong></div>
-          <div class="stat"><span>P&L tot.</span><strong id="st-pnl">—</strong></div>
-          <div class="stat"><span>Profit factor</span><strong id="st-pf">—</strong></div>
-          <div class="stat"><span>Chiusi</span><strong id="st-closed">—</strong></div>
-          <div class="stat"><span>Expectancy</span><strong id="st-exp">—</strong></div>
-          <div class="stat"><span>Best / Worst</span><strong id="st-bw">—</strong></div>
-        </div>
-        <div class="chart-wrap">
-          <canvas id="equity-chart" width="600" height="160"></canvas>
-          <p id="chart-empty" class="muted small chart-empty">Nessun trade chiuso — curva equity vuota.</p>
-        </div>
-      </section>
-
-      <!-- Strategy + positions -->
-      <section class="card">
-        <div class="card-head">
-          <h2>Strategia</h2>
-          <span id="strat-mode" class="pill">—</span>
-        </div>
-        <dl class="kv" id="strategy-kv"></dl>
-        <div class="card-head sub">
-          <h3>Posizione pair</h3>
-        </div>
-        <dl class="kv" id="position-kv"></dl>
-        <div class="card-head sub">
-          <h3>Posizioni HL aperte</h3>
-        </div>
-        <div class="table-scroll compact">
-          <table>
-            <thead>
-              <tr>
-                <th>Coin</th>
-                <th>Side</th>
-                <th>Size</th>
-                <th>Entry</th>
-                <th>uPnL</th>
-              </tr>
-            </thead>
-            <tbody id="positions-body">
-              <tr><td colspan="5" class="muted">Nessuna / wallet non collegato</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
-
-    <div class="grid-2">
-      <!-- Trades -->
-      <section class="card table-card">
-        <div class="card-head">
-          <h2>Trade recenti</h2>
-          <span id="trades-count" class="muted small">—</span>
-        </div>
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Quando</th>
-                <th>Tipo</th>
-                <th>Pair</th>
-                <th>Qty</th>
-                <th>Prezzo</th>
-                <th>PnL</th>
-              </tr>
-            </thead>
-            <tbody id="trades-body">
-              <tr><td colspan="6" class="muted">Nessun trade</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <!-- Events -->
-      <section class="card table-card">
-        <div class="card-head">
-          <h2>Event log</h2>
-          <span id="events-count" class="muted small">—</span>
-        </div>
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Quando</th>
-                <th>Tipo</th>
-                <th>Dettaglio</th>
-              </tr>
-            </thead>
-            <tbody id="events-body">
-              <tr><td colspan="3" class="muted">Nessun evento</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
-
-    <footer class="foot">
-      <span>Auto-refresh <strong id="refresh-sec">5</strong>s</span>
+    <footer class="panel-foot">
+      <span>Refresh <strong id="refresh-sec">5</strong>s</span>
       <span class="sep">·</span>
       <span id="last-fetch">—</span>
       <span class="sep">·</span>
-      <a href="/api/dashboard" target="_blank" rel="noopener">JSON API</a>
-      <span class="sep">·</span>
-      <a href="/health" target="_blank" rel="noopener">/health</a>
+      <a href="/api/dashboard" target="_blank" rel="noopener">JSON</a>
     </footer>
-  </main>
+  </aside>
+
+  <!-- Hidden KPI anchors for compatibility with partial IDs used in logic -->
+  <div class="sr-only" aria-hidden="true">
+    <span id="kpi-engine"></span><span id="kpi-engine-sub"></span>
+    <span id="kpi-price"></span><span id="kpi-pair-sub"></span>
+    <span id="kpi-equity"></span><span id="kpi-equity-sub"></span>
+    <span id="kpi-pnl"></span><span id="kpi-pnl-sub"></span>
+    <span id="kpi-score"></span><span id="kpi-score-sub"></span>
+    <span id="kpi-uptime"></span><span id="kpi-uptime-sub"></span>
+    <span id="decision-code"></span><span id="decision-action"></span>
+    <span id="decision-reason"></span><span id="decision-time"></span>
+    <span id="risk-badge"></span><span id="meter-day"></span><span id="meter-day-val"></span>
+    <span id="meter-dd"></span><span id="meter-dd-val"></span>
+    <span id="meter-loss"></span><span id="meter-loss-val"></span>
+    <span id="risk-text"></span><span id="caps-row"></span>
+    <span id="perf-pair"></span><span id="st-wr"></span><span id="st-pnl"></span>
+    <span id="st-pf"></span><span id="st-closed"></span><span id="st-exp"></span><span id="st-bw"></span>
+    <span id="strategy-kv"></span><span id="position-kv"></span>
+    <span id="events-body"></span><span id="events-count"></span><span id="trades-count"></span>
+    <span id="strat-mode"></span>
+  </div>
 
   <script src="/dashboard.js"></script>
 </body>
