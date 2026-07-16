@@ -917,64 +917,82 @@
       ctx.save();
       ctx.translate(x, y + bob);
 
-      // shadow
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      // ground shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.32)';
       ctx.beginPath();
-      ctx.ellipse(0, 34, 22, 6, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 40, 28, 8, 0, 0, Math.PI * 2);
       ctx.fill();
 
       // aura
       if (s.active) {
-        const g = ctx.createRadialGradient(0, 0, 5, 0, 0, 55);
-        g.addColorStop(0, s.blocked ? 'rgba(251,113,133,0.35)' : 'rgba(56,189,248,0.3)');
-        g.addColorStop(0.5, s.blocked ? 'rgba(251,113,133,0.08)' : 'rgba(45,212,191,0.1)');
+        const g = ctx.createRadialGradient(0, -4, 6, 0, -4, 58);
+        g.addColorStop(0, s.blocked ? 'rgba(251,113,133,0.4)' : 'rgba(56,189,248,0.35)');
+        g.addColorStop(0.55, s.blocked ? 'rgba(251,113,133,0.08)' : 'rgba(45,212,191,0.1)');
         g.addColorStop(1, 'transparent');
         ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(0, 5, 55, 0, Math.PI * 2);
+        ctx.arc(0, -4, 58, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      if (this.hermesReady && this.hermesImg) {
-        const img = this.hermesImg;
-        // Larger mascot at 8K density
-        const fw = this.quality.key === '8k' || this.quality.key === 'ultra' ? 92 : 70;
-        const fh = this.quality.key === '8k' || this.quality.key === 'ultra' ? 120 : 92;
-        // soft ground plate
-        ctx.fillStyle = 'rgba(15,23,42,0.35)';
-        ctx.beginPath();
-        ctx.ellipse(0, 34, 32, 9, 0, 0, Math.PI * 2);
-        ctx.fill();
+      const pfpR = this.quality.key === '8k' || this.quality.key === 'ultra' ? 44 : 38;
 
+      if (this.hermesPfpReady && this.hermesPfp) {
+        // circular premium PFP medallion
         ctx.save();
-        ctx.translate(0, 32);
+        this._applyCtxQuality(ctx);
+        ctx.beginPath();
+        ctx.arc(0, -4, pfpR, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.clip();
+        const side = pfpR * 2;
+        ctx.drawImage(this.hermesPfp, -pfpR, -4 - pfpR, side, side);
+        ctx.restore();
+
+        // double rim
+        const rim = ctx.createLinearGradient(-pfpR, -pfpR, pfpR, pfpR);
+        rim.addColorStop(0, 'rgba(224,242,254,0.95)');
+        rim.addColorStop(0.45, 'rgba(56,189,248,0.85)');
+        rim.addColorStop(1, 'rgba(14,165,233,0.95)');
+        ctx.lineWidth = 3.5;
+        ctx.strokeStyle = s.blocked ? 'rgba(251,113,133,0.95)' : rim;
+        ctx.beginPath();
+        ctx.arc(0, -4, pfpR, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.beginPath();
+        ctx.arc(0, -4, pfpR - 3, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (this.hermesReady && this.hermesImg) {
+        // fallback full body while pfp loads
+        const img = this.hermesImg;
+        const fw = 78;
+        const fh = 102;
+        ctx.save();
+        ctx.translate(0, 30);
         this._applyCtxQuality(ctx);
         ctx.drawImage(img, -fw / 2, -fh, fw, fh);
         ctx.restore();
-
-        // rim light on figure
-        ctx.strokeStyle = s.active
-          ? (s.blocked ? 'rgba(251,113,133,0.5)' : 'rgba(125,211,252,0.45)')
-          : 'rgba(148,163,184,0.3)';
-        ctx.lineWidth = 1.5;
-        // nameplate
-        ctx.font = '700 10px "DM Sans", system-ui, sans-serif';
-        const label = 'HERMES';
-        const tw = ctx.measureText(label).width;
-        ctx.fillStyle = 'rgba(6,10,22,0.88)';
-        roundRect(ctx, -tw / 2 - 10, 38, tw + 20, 18, 9);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(56,189,248,0.4)';
-        ctx.stroke();
-        ctx.fillStyle = '#7dd3fc';
-        ctx.textAlign = 'center';
-        ctx.fillText(label, 0, 50);
       } else {
         ctx.font = '32px serif';
         ctx.fillStyle = '#fde68a';
         ctx.textAlign = 'center';
         ctx.fillText('☿', 0, 10);
       }
+
+      // nameplate
+      ctx.font = '700 10px "DM Sans", system-ui, sans-serif';
+      const label = 'HERMES';
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = 'rgba(6,10,22,0.92)';
+      roundRect(ctx, -tw / 2 - 10, pfpR + 10, tw + 20, 18, 9);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(56,189,248,0.5)';
+      ctx.stroke();
+      ctx.fillStyle = '#7dd3fc';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, 0, pfpR + 22);
 
       ctx.restore();
     }
