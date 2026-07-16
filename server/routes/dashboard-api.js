@@ -305,6 +305,158 @@ router.get('/api/dashboard', async (req, res) => {
     const balanceSource = shared.balance?.source
       || (portfolio?.ok ? 'hyperliquid-api' : (dataMode === 'demo' ? 'none' : 'error'));
 
+    const r2 = (n) => (n == null || !Number.isFinite(Number(n)) ? null : Math.round(Number(n) * 100) / 100);
+    const r4 = (n) => (n == null || !Number.isFinite(Number(n)) ? null : Math.round(Number(n) * 10000) / 10000);
+
+    // --- Live score (authoritative for showcase signal; not stale lastDecision) ---
+    const liveScore = entryScore?.score ?? marketSnap?.score ?? null;
+    const liveMin = entryScore?.effectiveMin
+      ?? marketSnap?.effectiveMin
+      ?? shared.strategy.minConfidenceScore
+      ?? 65;
+    const baseMin = shared.strategy.minConfidenceScore ?? DEFAULT_STRATEGY.minConfidenceScore ?? 65;
+    const liveBias = entryScore?.bias ?? marketSnap?.bias ?? null;
+    const liveSignals = entryScore?.signals ?? marketSnap?.signals ?? [];
+    const liveRegime = entryScore?.regime ?? marketSnap?.regime ?? null;
+    const liveReasonCode = marketSnap?.reasonCode || entryScore?.reasonCode || null;
+
+    let signalAction = 'wait';
+    let signalCode = liveReasonCode || 'score_below_threshold';
+    let signalReason = (liveSignals || []).slice(0, 2).join(' · ') || 'Evaluating market';
+    if (riskBlocked || riskState.circuitBreaker) {
+      signalAction = 'blocked';
+      signalCode = 'risk_block';
+      signalReason = riskState.circuitReason || 'risk blocked';
+    } else if (!shared.strategy.active) {
+      signalAction = 'idle';
+      signalCode = 'engine_paused';
+      signalReason = 'Engine paused';
+    } else if (held > 1e-9) {
+      signalAction = 'in_position';
+      signalCode = 'holding';
+      signalReason = `Holding ${held} ${pair} · entry ${avg || '—'} · uPnL ${r2(pnlUnrealized)}`;
+    } else if (
+      liveScore != null
+      && liveMin != null
+      && liveScore >= liveMin
+      && (liveBias === 'long' || liveBias === 'buy')
+    ) {
+      signalAction = 'buy_ready';
+      signalCode = liveReasonCode || 'buy_confluence';
+      signalReason = liveSignals[0] || 'confluence met';
+    } else if (liveBias === 'blocked') {
+      signalAction = 'blocked';
+      signalCode = liveReasonCode || 'blocked';
+      signalReason = liveSignals[0] || 'setup blocked';
+    } else {
+      signalAction = 'wait';
+      signalCode = liveReasonCode || 'score_below_threshold';
+      signalReason = liveSignals.length
+        ? liveSignals.slice(0, 2).join(' · ')
+        : `score ${liveScore ?? '—'}/${liveMin} (need ≥ min)`;
+    }
+
+    const signalLive = {
+      action: signalAction,
+      reasonCode: signalCode,
+      reason: signalReason,
+      score: liveScore,
+      minScore: liveMin,
+      baseMinScore: baseMin,
+      regime: liveRegime,
+      bias: liveBias,
+      signals: liveSignals,
+      at: marketSnap?.at || new Date().toISOString(),
+      source: 'live_score',
+    };
+
+    // Stale lastDecision (often written by market_snapshot — do not treat as live intent)
+    const lastDec = shared.strategy.lastDecision || null;
+    let decisionAgeSec = null;
+    if (lastDec?.at) {
+      const t = Date.parse(lastDec.at);
+      if (Number.isFinite(t)) decisionAgeSec = Math.max(0, Math.round((Date.now() - t) / 1000));
+    }
+
+    const perpAV = shared.balance?.accountValuePerp ?? null;
+    const spotAvail = shared.balance?.usdcSpotAvailable ?? null;
+    let equityCheck = null;
+    if (perpAV != null && spotAvail != null && equity != null) {
+      const expected = Number(perpAV) + Number(spotAvail);
+      const delta = Number(equity) - expected;
+      equityCheck = {
+        expected: r2(expected),
+        actual: r2(equity),
+        delta: r2(delta),
+        ok: Math.abs(delta) < 0.05,
+        formula: 'equity = perp accountValue + spot USDC available',
+      };
+    }
+
+    const dayPnlUsd = dayStart > 0 && equity != null ? r2(equity - dayStart) : null;
+    const notional = held > 0 && price != null ? r2(held * price) : 0;
+    const distanceToEntryPct = avg > 0 && price != null
+      ? r2(((price - avg) / avg) * 100 * (position < 0 ? -1 : 1))
+      : null;
+
+    const positionView = {
+      coin: pair,
+      size: held,
+      side: position > 0 ? 'long' : position < 0 ? 'short' : 'flat',
+      entryPx: avg || null,
+      markPx: price,
+      notional,
+      invested: r2(held * avg),
+      uPnL: r2(pnlUnrealized),
+      uPnLpct: r2(pnlPerc),
+      distanceToEntryPct,
+      leverage: posRow?.leverage ?? null,
+      marginUsed: posRow?.marginUsed ?? shared.balance?.totalMarginUsed ?? null,
+      liquidationPx: posRow?.liquidationPx ?? null,
+      positionValue: posRow?.positionValue != null ? r2(posRow.positionValue) : notional,
+    };
+
+    const pnlView = {
+      unrealized: r2(pnlUnrealized),
+      unrealizedPct: r2(pnlPerc),
+      dayUsd: dayPnlUsd,
+      dayPct: dayPnlPct != null ? r2(dayPnlPct) : null,
+      closedTotal: stats.totalPnl != null ? r2(stats.totalPnl) : null,
+      winRate: stats.winRate ?? null,
+      closedTrades: stats.closedTrades ?? 0,
+      expectancy: stats.expectancy ?? null,
+      profitFactor: stats.profitFactor ?? null,
+    };
+
+    const dataQuality = {
+      ok: price != null && (portfolio?.ok !== false || dataMode === 'demo'),
+      equityCheck,
+      decisionAgeSec,
+      signalStale: decisionAgeSec != null && decisionAgeSec > 180,
+      scoreVsLastDecision: lastDec?.score != null && liveScore != null
+        ? {
+            live: liveScore,
+            lastDecision: lastDec.score,
+            diverge: Math.abs(Number(liveScore) - Number(lastDec.score)) >= 10,
+          }
+        : null,
+      notes: [
+        'Mark mid = Hyperliquid allMids (perp). TradingView chart = COINBASE:ETHUSD spot reference.',
+        'RSI/score derived from HL candleSnapshot (computed, not exchange-native fields).',
+        'signalLive is current score/bias; strategy.lastDecision may be stale history.',
+      ],
+    };
+
+    // Normalize trade timestamps for UI
+    const tradesOut = trades.slice(-30).reverse().map((t) => ({
+      ...t,
+      ts: t.timestamp || t.ts || t.time || t.at || t.loggedAt || null,
+      type: t.type || t.side || null,
+      pair: t.pair || pair,
+      price: t.price != null ? Number(t.price) : null,
+      pnl: t.pnl != null ? Number(t.pnl) : null,
+    }));
+
     res.json({
       ok: true,
       ts: new Date().toISOString(),
@@ -317,6 +469,10 @@ router.get('/api/dashboard', async (req, res) => {
         market: marketSnap?.ok ? 'hyperliquid-candles' : 'unavailable',
         portfolio: portfolio?.ok ? 'hyperliquid-api' : (dataMode === 'demo' ? 'none' : 'error'),
       },
+      dataQuality,
+      signalLive,
+      position: positionView,
+      pnl: pnlView,
       engine: {
         running: true,
         active: !!shared.strategy.active,
@@ -336,20 +492,25 @@ router.get('/api/dashboard', async (req, res) => {
         positionSigned: position,
         avgBuyPrice: avg,
         totalInvested: held * avg,
-        pnlUnrealized: Math.round(pnlUnrealized * 100) / 100,
-        pnlPercent: Math.round(pnlPerc * 100) / 100,
-        // Score/RSI: calcolati da candele HL reali (non inventati, ma non sono campi nativi HL)
-        score: entryScore?.score ?? marketSnap?.score ?? shared.strategy.lastSignal?.score ?? null,
-        effectiveMin: entryScore?.effectiveMin ?? marketSnap?.effectiveMin ?? shared.strategy.minConfidenceScore ?? 65,
-        regime: entryScore?.regime ?? marketSnap?.regime ?? null,
+        pnlUnrealized: r2(pnlUnrealized),
+        pnlPercent: r2(pnlPerc),
+        // Live score from candles — never substitute stale lastSignal score
+        score: liveScore,
+        effectiveMin: liveMin,
+        baseMinScore: baseMin,
+        regime: liveRegime,
         rsi: marketSnap?.rsi ?? snap.analysis?.entry?.rsi ?? null,
-        bias: entryScore?.bias ?? marketSnap?.bias ?? null,
-        signals: entryScore?.signals ?? marketSnap?.signals ?? [],
+        bias: liveBias,
+        signals: liveSignals,
         funding: marketSnap?.funding ?? null,
+        fundingPct: marketSnap?.funding != null ? r4(marketSnap.funding * 100) : null,
         openInterest: marketSnap?.openInterest ?? null,
-        reasonCode: marketSnap?.reasonCode || entryScore?.reasonCode || null,
+        reasonCode: liveReasonCode,
         priceSource: price != null ? 'hyperliquid-allMids' : 'unavailable',
+        venue: 'hyperliquid-perp',
+        chartRef: 'COINBASE:ETHUSD',
         indicatorsNote: 'RSI/score da candele HL (candleSnapshot), non numeri inventati',
+        snapshotAt: marketSnap?.at || null,
       },
       watchlist: watchlist || [],
       openPositions: openPositions || [],
@@ -360,7 +521,7 @@ router.get('/api/dashboard', async (req, res) => {
         usdcSpotAvailable: shared.balance?.usdcSpotAvailable ?? null,
         usdcSpotHold: shared.balance?.usdcSpotHold ?? null,
         hypeEvm: shared.balance?.hypeEvm ?? null,
-        equity,
+        equity: r2(equity),
         accountValue: shared.balance?.accountValue ?? equity,
         accountValuePerp: shared.balance?.accountValuePerp ?? null,
         totalNtlPos: shared.balance?.totalNtlPos ?? null,
@@ -370,11 +531,11 @@ router.get('/api/dashboard', async (req, res) => {
         formula: realData.hasValidAddress()
           ? 'equity = HL perps accountValue + spot USDC available (total − hold)'
           : null,
+        equityCheck,
       },
       hlTruth: realData.hasValidAddress()
         ? {
             note: 'Valori grezzi API Hyperliquid (info clearinghouse + spot + allMids)',
-            // mai address completo in vetrina pubblica
             addressShort: wallet?.address && realData.hasValidAddress(wallet)
               ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`
               : null,
@@ -390,8 +551,11 @@ router.get('/api/dashboard', async (req, res) => {
         : null,
       risk: {
         ...riskState,
-        dayPnlPct: dayPnlPct != null ? Math.round(dayPnlPct * 100) / 100 : null,
-        drawdownPct: drawdownPct != null ? Math.round(drawdownPct * 100) / 100 : null,
+        dayPnlPct: dayPnlPct != null ? r2(dayPnlPct) : null,
+        dayPnlUsd,
+        dayStartEquity: dayStart ?? null,
+        drawdownPct: drawdownPct != null ? r2(drawdownPct) : null,
+        peakEquity: peak ?? null,
         blocked: riskBlocked,
         statusText: riskManager.formatRiskStatus(riskState, shared.strategy, equity),
       },
@@ -401,7 +565,7 @@ router.get('/api/dashboard', async (req, res) => {
       performance: stats,
       priceChart: priceChart || null,
       equityCurve: buildEquityCurve(trades, 100),
-      trades: trades.slice(-30).reverse(),
+      trades: tradesOut,
       events: events.slice().reverse(),
       heartbeat,
       lastTrade: shared.lastTrade,
@@ -409,7 +573,6 @@ router.get('/api/dashboard', async (req, res) => {
         ? {
             mode: wallet.mode || 'demo',
             dataMode,
-            // solo short — vetrina pubblica
             addressShort: wallet.address && realData.hasValidAddress(wallet)
               ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`
               : null,

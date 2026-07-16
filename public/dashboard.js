@@ -303,18 +303,38 @@
   function renderSignal(data) {
     const eng = data.engine || {};
     const mkt = data.market || {};
-    const dec = data.strategy?.lastDecision || data.strategy?.lastSignal;
+    // Prefer live score-based signal (honest). Fallback to lastDecision only if missing.
+    const live = data.signalLive;
+    const dec = live || data.strategy?.lastDecision || data.strategy?.lastSignal;
     if (dec) {
+      const action = (dec.action || '—').toString();
+      const label = ({
+        buy: 'Buy',
+        buy_ready: 'Buy ready',
+        add: 'Add',
+        sell: 'Sell',
+        blocked: 'Blocked',
+        wait: 'Wait',
+        hold: 'Hold',
+        holding: 'In position',
+        in_position: 'In position',
+        idle: 'Idle',
+        scanning: 'Scanning',
+      })[action] || action.replace(/_/g, ' ');
+
       $('thought-code').textContent = dec.reasonCode || '—';
-      $('thought-action').textContent = (dec.action || '—').toString();
+      $('thought-action').textContent = label;
       $('thought-action').className = 'signal-action ' + (
-        dec.action === 'buy' || dec.action === 'add' ? 'good'
-          : dec.action === 'sell' || dec.action === 'blocked' ? 'bad' : ''
+        action === 'buy' || action === 'buy_ready' || action === 'add' ? 'good'
+          : action === 'sell' || action === 'blocked' ? 'bad' : ''
       );
       const sc = dec.score != null
         ? `score ${dec.score}${dec.minScore != null ? '/' + dec.minScore : ''}`
+        : (mkt.score != null ? `score ${mkt.score}/${mkt.effectiveMin ?? '—'}` : '');
+      const stale = data.dataQuality?.signalStale
+        ? ` · lastDecision ${data.dataQuality.decisionAgeSec}s ago (not used)`
         : '';
-      $('thought-reason').textContent = [dec.reason, sc].filter(Boolean).join(' · ');
+      $('thought-reason').textContent = [dec.reason, sc].filter(Boolean).join(' · ') + (live ? '' : stale);
     } else {
       $('thought-code').textContent = eng.active ? 'SCANNING' : 'IDLE';
       $('thought-action').textContent = eng.active ? 'Evaluating setup' : 'Engine paused';
@@ -408,6 +428,9 @@
   function renderAccount(data) {
     const mkt = data.market || {};
     const bal = data.balance || {};
+    const pos = data.position || {};
+    const pnl = data.pnl || {};
+    const q = data.dataQuality || {};
 
     if ($('orb-equity-val')) {
       $('orb-equity-val').textContent = bal.equity != null ? usd(bal.equity) : '—';
@@ -417,8 +440,24 @@
     }
     const up = $('panel-upnl');
     if (up) {
-      up.textContent = money(mkt.pnlUnrealized);
-      up.className = 'mono ' + pnlClass(mkt.pnlUnrealized);
+      const u = pnl.unrealized != null ? pnl.unrealized : mkt.pnlUnrealized;
+      const upct = pnl.unrealizedPct != null ? pnl.unrealizedPct : mkt.pnlPercent;
+      up.textContent = u != null
+        ? `uPnL ${money(u)}${upct != null ? ` (${fmtPct(upct)})` : ''}`
+        : 'uPnL —';
+      up.className = 'mono ' + pnlClass(u);
+    }
+    const dayEl = $('panel-day-pnl');
+    if (dayEl) {
+      const dUsd = pnl.dayUsd != null ? pnl.dayUsd : data.risk?.dayPnlUsd;
+      const dPct = pnl.dayPct != null ? pnl.dayPct : data.risk?.dayPnlPct;
+      if (dUsd != null || dPct != null) {
+        dayEl.textContent = `day ${dUsd != null ? money(dUsd) : '—'}${dPct != null ? ` (${fmtPct(dPct)})` : ''}`;
+        dayEl.className = 'mono ' + pnlClass(dUsd != null ? dUsd : dPct);
+      } else {
+        dayEl.textContent = 'day —';
+        dayEl.className = 'mono';
+      }
     }
     if ($('panel-perp')) {
       $('panel-perp').textContent = bal.accountValuePerp != null ? usd(bal.accountValuePerp) : '—';
@@ -438,16 +477,94 @@
         : '—';
     }
     if ($('panel-regime')) $('panel-regime').textContent = mkt.regime || '—';
+    if ($('panel-rsi')) {
+      $('panel-rsi').textContent = mkt.rsi != null ? fmtNum(mkt.rsi, 1) : '—';
+    }
+    if ($('panel-funding')) {
+      $('panel-funding').textContent = mkt.fundingPct != null
+        ? `${mkt.fundingPct}%`
+        : (mkt.funding != null ? `${(mkt.funding * 100).toFixed(4)}%` : '—');
+    }
+    if ($('panel-bias')) $('panel-bias').textContent = mkt.bias || data.signalLive?.bias || '—';
+
+    // Position detail
+    if ($('pos-side-size')) {
+      if (pos.side && pos.side !== 'flat' && pos.size) {
+        $('pos-side-size').textContent = `${String(pos.side).toUpperCase()} ${fmtNum(pos.size, 4)}`;
+        $('pos-side-size').className = 'metric-value mono ' + (pos.side === 'long' ? 'good' : 'bad');
+      } else {
+        $('pos-side-size').textContent = 'FLAT';
+        $('pos-side-size').className = 'metric-value mono';
+      }
+    }
+    if ($('pos-entry')) $('pos-entry').textContent = pos.entryPx != null ? usd(pos.entryPx, 2) : '—';
+    if ($('pos-mark')) $('pos-mark').textContent = pos.markPx != null ? usd(pos.markPx, 2) : (mkt.price != null ? usd(mkt.price, 2) : '—');
+    if ($('pos-dist')) {
+      if (pos.distanceToEntryPct != null) {
+        $('pos-dist').textContent = fmtPct(pos.distanceToEntryPct);
+        $('pos-dist').className = 'metric-value mono ' + pnlClass(pos.distanceToEntryPct);
+      } else {
+        $('pos-dist').textContent = '—';
+        $('pos-dist').className = 'metric-value mono';
+      }
+    }
+    if ($('pos-notional')) $('pos-notional').textContent = pos.notional != null ? usd(pos.notional) : '—';
+    if ($('pos-lev')) $('pos-lev').textContent = pos.leverage != null ? `${pos.leverage}x` : '—';
+
+    const eqLine = $('equity-check-line');
+    if (eqLine) {
+      const ec = bal.equityCheck || q.equityCheck;
+      if (ec) {
+        eqLine.textContent = ec.ok
+          ? `Equity check OK · perp+spotAvail = ${usd(ec.expected)}`
+          : `Equity check Δ ${money(ec.delta)} · expected ${usd(ec.expected)} vs ${usd(ec.actual)}`;
+        eqLine.className = 'truth-line mono ' + (ec.ok ? '' : 'bad');
+      } else {
+        eqLine.textContent = bal.formula || '';
+      }
+    }
+
+    const notes = $('market-notes');
+    if (notes) {
+      notes.textContent = [
+        mkt.venue ? `venue ${mkt.venue}` : null,
+        mkt.chartRef ? `TV ref ${mkt.chartRef}` : null,
+        mkt.baseMinScore != null && mkt.effectiveMin != null && mkt.baseMinScore !== mkt.effectiveMin
+          ? `min ${mkt.effectiveMin} (base ${mkt.baseMinScore})`
+          : null,
+      ].filter(Boolean).join(' · ');
+    }
+
+    const qp = $('quality-pill');
+    if (qp) {
+      if (q.ok === false) {
+        qp.textContent = 'DATA WEAK';
+        qp.className = 'quality-pill bad';
+      } else if (q.equityCheck && q.equityCheck.ok === false) {
+        qp.textContent = 'EQUITY Δ';
+        qp.className = 'quality-pill warn';
+      } else if (q.scoreVsLastDecision?.diverge) {
+        qp.textContent = 'SCORE LIVE';
+        qp.className = 'quality-pill ok';
+      } else if (q.ok) {
+        qp.textContent = 'HL LIVE';
+        qp.className = 'quality-pill ok';
+      } else {
+        qp.textContent = '—';
+        qp.className = 'quality-pill';
+      }
+    }
 
     const tick = $('live-ticker');
     if (tick) {
       const parts = [
-        `${(mkt.pair || 'ETH').toUpperCase()} ${mkt.price != null ? usd(mkt.price) : '—'}`,
+        `${(mkt.pair || 'ETH').toUpperCase()} mid ${mkt.price != null ? usd(mkt.price) : '—'}`,
         bal.equity != null ? `equity ${usd(bal.equity)}` : null,
-        bal.accountValuePerp != null ? `perp ${usd(bal.accountValuePerp)}` : null,
-        bal.usdcSpotAvailable != null ? `spot ${usd(bal.usdcSpotAvailable)}` : null,
-        mkt.pnlUnrealized != null ? `uPnL ${money(mkt.pnlUnrealized)}` : null,
-        mkt.funding != null ? `fund ${(mkt.funding * 100).toFixed(4)}%` : null,
+        pos.side && pos.side !== 'flat' ? `${pos.side} ${fmtNum(pos.size, 4)} @ ${pos.entryPx != null ? usd(pos.entryPx) : '—'}` : 'flat',
+        pnl.unrealized != null ? `uPnL ${money(pnl.unrealized)}` : null,
+        pnl.dayUsd != null ? `day ${money(pnl.dayUsd)}` : null,
+        mkt.score != null ? `score ${fmtNum(mkt.score, 0)}/${mkt.effectiveMin ?? '—'}` : null,
+        mkt.rsi != null ? `RSI ${fmtNum(mkt.rsi, 1)}` : null,
         data.wallet?.addressShort || null,
       ].filter(Boolean);
       tick.textContent = parts.join('   ·   ');
@@ -457,28 +574,35 @@
   function renderRiskKv(data) {
     const eng = data.engine || {};
     const mkt = data.market || {};
-    const bal = data.balance || {};
     const risk = data.risk || {};
+    const pnl = data.pnl || {};
+    const perf = data.performance || {};
+    const q = data.dataQuality || {};
     const kv = $('world-kv');
     if (!kv) return;
     const rows = [
       ['Engine', eng.active ? (eng.operational ? 'running' : 'blocked') : 'paused'],
       ['Mode', data.dataMode || eng.mode || '—'],
       ['Pair', (mkt.pair || eng.pair || '—').toString().toUpperCase()],
-      ['RSI', mkt.rsi != null ? fmtNum(mkt.rsi, 1) : '—'],
-      ['Day PnL', risk.dayPnlPct != null ? fmtPct(risk.dayPnlPct) : '—'],
+      ['Day PnL $', pnl.dayUsd != null ? money(pnl.dayUsd) : (risk.dayPnlUsd != null ? money(risk.dayPnlUsd) : '—')],
+      ['Day PnL %', risk.dayPnlPct != null ? fmtPct(risk.dayPnlPct) : '—'],
       ['Drawdown', risk.drawdownPct != null ? fmtPct(risk.drawdownPct) : '—'],
+      ['Closed PnL', perf.totalPnl != null ? money(perf.totalPnl) : '—'],
+      ['Win rate', perf.closedTrades ? `${perf.winRate}% (n=${perf.closedTrades})` : '—'],
+      ['Expectancy', perf.expectancy != null ? money(perf.expectancy) : '—'],
       ['Loss streak', `${risk.consecutiveLosses ?? 0}`],
       ['Uptime', fmtUptime(eng.uptime)],
+      ['Decision age', q.decisionAgeSec != null ? `${q.decisionAgeSec}s` : '—'],
     ];
     kv.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v ?? '—'}</dd>`).join('');
 
     const line = $('hl-truth-line');
     if (line) {
       const hl = data.hlTruth;
+      const note = (q.notes && q.notes[0]) || '';
       line.textContent = hl
-        ? `HL truth · mid ${usd(hl.midPrice)} · perp ${usd(hl.perpsAccountValue)} · spot avail ${usd(hl.spotUsdcAvailable)}`
-        : 'Live feed from Hyperliquid public API · equity = perp AV + spot USDC available';
+        ? `HL · mid ${usd(hl.midPrice)} · perp ${usd(hl.perpsAccountValue)} · spot ${usd(hl.spotUsdcAvailable)} · ${note}`
+        : (note || 'Live feed from Hyperliquid public API');
     }
   }
 

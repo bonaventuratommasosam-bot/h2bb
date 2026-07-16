@@ -104,15 +104,20 @@
     <aside class="panel" id="panel">
       <div class="panel-header">
         <div>
-          <div class="panel-kicker">Portfolio</div>
+          <div class="panel-kicker">Portfolio equity</div>
           <div class="panel-equity mono" id="orb-equity-val">—</div>
           <div class="panel-equity-sub">
             <span id="panel-upnl" class="mono">—</span>
             <span class="sep">·</span>
+            <span id="panel-day-pnl" class="mono">day —</span>
+            <span class="sep">·</span>
             <span id="engine-badge" class="section-badge">—</span>
           </div>
         </div>
-        <div class="panel-latency mono" id="latency" title="Last fetch latency">—</div>
+        <div class="panel-header-right">
+          <div class="panel-latency mono" id="latency" title="Last fetch latency">—</div>
+          <div class="quality-pill" id="quality-pill" title="Data quality">—</div>
+        </div>
       </div>
 
       <div class="panel-scroll">
@@ -139,25 +144,69 @@
             </div>
           </div>
           <p class="wallet-line mono" id="connect-status"></p>
+          <p class="truth-line mono" id="equity-check-line"></p>
           <div class="sources-row" id="sources-row"></div>
         </section>
 
         <section class="panel-section">
-          <div class="section-head"><h2>Market</h2></div>
+          <div class="section-head"><h2>Position</h2></div>
+          <div class="metric-grid">
+            <div class="metric">
+              <span class="metric-label">Side / size</span>
+              <span class="metric-value mono" id="pos-side-size">—</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Entry</span>
+              <span class="metric-value mono" id="pos-entry">—</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Mark (HL mid)</span>
+              <span class="metric-value mono" id="pos-mark">—</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">vs entry</span>
+              <span class="metric-value mono" id="pos-dist">—</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Notional</span>
+              <span class="metric-value mono" id="pos-notional">—</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Leverage</span>
+              <span class="metric-value mono" id="pos-lev">—</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-head"><h2>Market (HL)</h2></div>
           <div class="metric-grid metric-grid-3">
             <div class="metric">
               <span class="metric-label">Mid</span>
               <span class="metric-value mono" id="panel-mid">—</span>
             </div>
             <div class="metric">
-              <span class="metric-label">Score</span>
+              <span class="metric-label">Score live</span>
               <span class="metric-value mono" id="panel-score">—</span>
             </div>
             <div class="metric">
               <span class="metric-label">Regime</span>
               <span class="metric-value" id="panel-regime">—</span>
             </div>
+            <div class="metric">
+              <span class="metric-label">RSI</span>
+              <span class="metric-value mono" id="panel-rsi">—</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Funding</span>
+              <span class="metric-value mono" id="panel-funding">—</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Bias</span>
+              <span class="metric-value" id="panel-bias">—</span>
+            </div>
           </div>
+          <p class="truth-line mono" id="market-notes"></p>
           <div class="watchlist" id="watchlist"></div>
         </section>
 
