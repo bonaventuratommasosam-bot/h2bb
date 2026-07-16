@@ -1,16 +1,14 @@
-/* H2BB Minimondo — VETRINA pubblica (sola lettura, zero controlli) */
+/* Hermes Live — professional read-only showcase */
 (() => {
   const REFRESH_MS = 5000;
-  let timer = null;
-  let lastOk = false;
   let world = null;
 
   const $ = (id) => document.getElementById(id);
 
-  function showBanner(html, kind = 'bad') {
+  function showBanner(html) {
     const el = $('error-banner');
     if (!el) return;
-    el.className = `error-banner ${kind}`;
+    el.className = 'error-banner';
     el.innerHTML = html;
     el.hidden = !html;
   }
@@ -45,10 +43,10 @@
     if (!ts) return '—';
     try {
       const d = typeof ts === 'number' ? new Date(ts) : new Date(ts);
-      if (Number.isNaN(d.getTime())) return String(ts).slice(0, 19);
-      return d.toLocaleString('it-IT', {
+      if (Number.isNaN(d.getTime())) return String(ts).slice(0, 16);
+      return d.toLocaleString('en-GB', {
         day: '2-digit', month: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour: '2-digit', minute: '2-digit',
       });
     } catch { return '—'; }
   }
@@ -81,29 +79,59 @@
       accountValuePerp: data.balance?.accountValuePerp,
       usdcSpotAvailable: data.balance?.usdcSpotAvailable,
       funding: mkt.funding,
-      signals: mkt.signals || [],
       watchlist: data.watchlist || [],
       openPositions: data.openPositions || [],
     });
   }
 
-  function renderThought(data) {
+  function renderSignal(data) {
     const eng = data.engine || {};
     const mkt = data.market || {};
     const dec = data.strategy?.lastDecision || data.strategy?.lastSignal;
     if (dec) {
-      $('thought-code').textContent = dec.reasonCode || dec.bias || 'decision';
-      $('thought-action').textContent = dec.action || '—';
-      $('thought-action').className = 'thought-action ' + (
+      $('thought-code').textContent = dec.reasonCode || '—';
+      $('thought-action').textContent = (dec.action || '—').toString();
+      $('thought-action').className = 'signal-action ' + (
         dec.action === 'buy' || dec.action === 'add' ? 'good'
           : dec.action === 'sell' || dec.action === 'blocked' ? 'bad' : ''
       );
-      const sc = dec.score != null ? ` · score ${dec.score}${dec.minScore != null ? '/' + dec.minScore : ''}` : '';
-      $('thought-reason').textContent = (dec.reason || '') + sc;
+      const sc = dec.score != null ? `score ${dec.score}${dec.minScore != null ? '/' + dec.minScore : ''}` : '';
+      $('thought-reason').textContent = [dec.reason, sc].filter(Boolean).join(' · ');
     } else {
-      $('thought-code').textContent = 'listening';
-      $('thought-action').textContent = eng.active ? 'traccio la rotta…' : 'in osservazione';
-      $('thought-reason').textContent = (mkt.signals || []).slice(0, 2).join(' · ') || 'dati Hyperliquid in arrivo';
+      $('thought-code').textContent = eng.active ? 'scanning' : 'idle';
+      $('thought-action').textContent = eng.active ? 'Evaluating setup' : 'Engine paused';
+      $('thought-reason').textContent = (mkt.signals || []).slice(0, 2).join(' · ') || 'Streaming Hyperliquid market data';
+    }
+  }
+
+  function renderQuote(data) {
+    const mkt = data.market || {};
+    const pair = (mkt.pair || data.engine?.pair || 'ETH').toUpperCase();
+    if ($('quote-pair')) $('quote-pair').textContent = `${pair}-PERP`;
+    if ($('quote-price')) {
+      $('quote-price').textContent = mkt.price != null
+        ? `$${Number(mkt.price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : '—';
+    }
+    const ch = $('quote-change');
+    if (ch) {
+      if (mkt.pnlUnrealized != null && Math.abs(mkt.positionSigned || mkt.heldAmount || 0) > 1e-9) {
+        ch.textContent = `pos ${fmtMoney(mkt.pnlUnrealized)}`;
+        ch.className = 'mono ' + pnlClass(mkt.pnlUnrealized);
+      } else {
+        ch.textContent = mkt.regime || 'flat';
+        ch.className = 'mono';
+      }
+    }
+    if ($('quote-funding')) {
+      $('quote-funding').textContent = mkt.funding != null
+        ? `funding ${(mkt.funding * 100).toFixed(4)}%`
+        : 'funding —';
+    }
+    if ($('quote-score')) {
+      $('quote-score').textContent = mkt.score != null
+        ? `score ${fmtNum(mkt.score, 0)}/${mkt.effectiveMin ?? '—'}`
+        : 'score —';
     }
   }
 
@@ -112,34 +140,82 @@
     const row = $('sources-row');
     if (!row) return;
     row.innerHTML = [
-      ['prezzo', src.price],
-      ['mercato', src.market],
+      ['price', src.price],
       ['portfolio', src.portfolio],
-      ['balance', src.balance],
+      ['market', src.market],
     ].map(([k, v]) => {
-      const ok = v && !['none', 'unavailable', 'error', 'simulated'].includes(v);
+      const ok = v && !['none', 'unavailable', 'error', 'simulated'].includes(String(v));
       return `<span class="source-chip ${ok ? 'ok' : 'bad'}">${k}: ${v || '—'}</span>`;
     }).join('');
   }
 
   function renderMeta(data) {
     const mode = data.dataMode || data.engine?.mode || 'demo';
+    const eng = data.engine || {};
     if (mode === 'live') setPill($('mode-pill'), 'LIVE', 'pill-live');
     else if (mode === 'observe') setPill($('mode-pill'), 'OBSERVE', 'pill-observe');
     else setPill($('mode-pill'), 'DEMO', 'pill-demo');
 
+    const badge = $('engine-badge');
+    if (badge) {
+      if (!eng.active) {
+        badge.textContent = 'PAUSED';
+        badge.className = 'section-badge off';
+      } else if (eng.circuitBreaker || eng.riskBlocked) {
+        badge.textContent = 'BLOCKED';
+        badge.className = 'section-badge blocked';
+      } else {
+        badge.textContent = 'RUNNING';
+        badge.className = 'section-badge on';
+      }
+    }
+
     const status = $('connect-status');
     if (status) {
-      if (data.wallet?.addressShort) {
-        status.innerHTML = `Wallet in vetrina: <code>${data.wallet.addressShort}</code> · ${data.balance?.source || 'HL'}`;
-      } else {
-        status.textContent = 'Vetrina live del bot Hermes su Hyperliquid.';
-      }
+      status.textContent = data.wallet?.addressShort
+        ? `Wallet ${data.wallet.addressShort} · ${data.balance?.source || 'hyperliquid'}`
+        : `Source ${data.balance?.source || data.sources?.price || '—'}`;
     }
     renderSources(data);
   }
 
-  function renderWorldKv(data) {
+  function renderAccount(data) {
+    const mkt = data.market || {};
+    const bal = data.balance || {};
+    if ($('orb-equity-val')) $('orb-equity-val').textContent = bal.equity != null ? `$${fmtNum(bal.equity)}` : '—';
+    if ($('panel-mid')) {
+      $('panel-mid').textContent = mkt.price != null
+        ? `$${Number(mkt.price).toLocaleString('en-US', { maximumFractionDigits: 2 })}`
+        : '—';
+    }
+    const up = $('panel-upnl');
+    if (up) {
+      up.textContent = fmtMoney(mkt.pnlUnrealized);
+      up.className = 'metric-value mono ' + pnlClass(mkt.pnlUnrealized);
+    }
+    if ($('panel-perp')) $('panel-perp').textContent = bal.accountValuePerp != null ? `$${fmtNum(bal.accountValuePerp)}` : '—';
+    if ($('panel-spot')) $('panel-spot').textContent = bal.usdcSpotAvailable != null ? `$${fmtNum(bal.usdcSpotAvailable)}` : '—';
+    if ($('panel-score')) {
+      $('panel-score').textContent = mkt.score != null ? `${fmtNum(mkt.score, 0)}/${mkt.effectiveMin ?? '—'}` : '—';
+    }
+    if ($('panel-regime')) $('panel-regime').textContent = mkt.regime || '—';
+
+    const tick = $('live-ticker');
+    if (tick) {
+      const parts = [
+        `${(mkt.pair || 'ETH').toUpperCase()} ${mkt.price != null ? '$' + fmtNum(mkt.price) : '—'}`,
+        bal.equity != null ? `equity $${fmtNum(bal.equity)}` : null,
+        bal.accountValuePerp != null ? `perp $${fmtNum(bal.accountValuePerp)}` : null,
+        bal.usdcSpotAvailable != null ? `spot $${fmtNum(bal.usdcSpotAvailable)}` : null,
+        mkt.pnlUnrealized != null ? `uPnL ${fmtMoney(mkt.pnlUnrealized)}` : null,
+        mkt.funding != null ? `fund ${(mkt.funding * 100).toFixed(4)}%` : null,
+        data.wallet?.addressShort || null,
+      ].filter(Boolean);
+      tick.textContent = parts.join('   ·   ');
+    }
+  }
+
+  function renderRiskKv(data) {
     const eng = data.engine || {};
     const mkt = data.market || {};
     const bal = data.balance || {};
@@ -147,33 +223,25 @@
     const kv = $('world-kv');
     if (!kv) return;
     const rows = [
-      ['Engine', eng.active ? (eng.operational ? 'operativo' : 'bloccato') : 'pausa'],
+      ['Engine', eng.active ? (eng.operational ? 'running' : 'blocked') : 'paused'],
       ['Mode', data.dataMode || eng.mode || '—'],
       ['Pair', mkt.pair || eng.pair],
-      ['Mid HL', mkt.price != null ? `$${fmtNum(mkt.price)}` : '—'],
-      ['Equity', bal.equity != null ? `$${fmtNum(bal.equity)}` : '—'],
-      ['Perp AV', bal.accountValuePerp != null ? `$${fmtNum(bal.accountValuePerp)}` : '—'],
-      ['Spot avail', bal.usdcSpotAvailable != null ? `$${fmtNum(bal.usdcSpotAvailable)}` : '—'],
-      ['Posizione', Math.abs(mkt.positionSigned || 0) > 1e-9
-        ? `${fmtNum(mkt.positionSigned, 5)} @ ${fmtNum(mkt.avgBuyPrice)}`
-        : 'flat'],
-      ['uPnL', fmtMoney(mkt.pnlUnrealized)],
-      ['Score', mkt.score != null ? `${fmtNum(mkt.score, 0)} / ${mkt.effectiveMin}` : '—'],
-      ['Regime', mkt.regime || '—'],
       ['RSI', mkt.rsi != null ? fmtNum(mkt.rsi, 1) : '—'],
-      ['Funding', mkt.funding != null ? `${(mkt.funding * 100).toFixed(4)}%` : '—'],
+      ['Day PnL', risk.dayPnlPct != null ? fmtPct(risk.dayPnlPct) : '—'],
+      ['Drawdown', risk.drawdownPct != null ? fmtPct(risk.drawdownPct) : '—'],
+      ['Loss streak', `${risk.consecutiveLosses ?? 0}`],
       ['Uptime', fmtUptime(eng.uptime)],
-      ['DD', risk.drawdownPct != null ? fmtPct(risk.drawdownPct) : '—'],
-      ['Giorno', risk.dayPnlPct != null ? fmtPct(risk.dayPnlPct) : '—'],
+      ['Spot hold', bal.usdcSpotHold != null ? `$${fmtNum(bal.usdcSpotHold)}` : '—'],
+      ['Margin used', bal.totalMarginUsed != null ? `$${fmtNum(bal.totalMarginUsed)}` : '—'],
     ];
     kv.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v ?? '—'}</dd>`).join('');
 
     const line = $('hl-truth-line');
     if (line) {
       const hl = data.hlTruth;
-      line.innerHTML = hl
-        ? `HL · mid <code>$${fmtNum(hl.midPrice)}</code> · perp <code>$${fmtNum(hl.perpsAccountValue)}</code> · spot <code>$${fmtNum(hl.spotUsdcAvailable)}</code>`
-        : 'Dati di mercato Hyperliquid in tempo reale.';
+      line.textContent = hl
+        ? `HL mid $${fmtNum(hl.midPrice)} · perp $${fmtNum(hl.perpsAccountValue)} · spot avail $${fmtNum(hl.spotUsdcAvailable)}`
+        : 'Live feed from Hyperliquid public API';
     }
   }
 
@@ -187,23 +255,23 @@
     el.innerHTML = list.map((w) => `
       <div class="watch-item">
         <div class="pair">${w.pair || '—'}</div>
-        <div class="px">${w.price != null ? '$' + fmtNum(w.price, w.pair === 'BTC' ? 1 : 2) : '—'}</div>
+        <div class="px">${w.price != null ? '$' + Number(w.price).toLocaleString('en-US', { maximumFractionDigits: w.pair === 'BTC' ? 0 : 2 }) : '—'}</div>
       </div>
     `).join('');
   }
 
-  function renderOpenPositions(positions) {
+  function renderPositions(positions) {
     const body = $('positions-body');
     if (!body) return;
     if (!positions?.length) {
-      body.innerHTML = '<tr><td colspan="4" class="muted">Mare calmo</td></tr>';
+      body.innerHTML = '<tr><td colspan="4" class="empty">No open positions</td></tr>';
       return;
     }
     body.innerHTML = positions.map((p) => {
       const sideCls = p.side === 'long' ? 'badge-buy' : 'badge-sell';
       return `<tr>
         <td>${p.coin || '—'}</td>
-        <td class="${sideCls}">${p.side || '—'}</td>
+        <td class="${sideCls}">${(p.side || '—').toUpperCase()}</td>
         <td class="mono">${fmtNum(Math.abs(p.size), 5)}</td>
         <td class="mono ${pnlClass(p.unrealizedPnl)}">${fmtMoney(p.unrealizedPnl)}</td>
       </tr>`;
@@ -214,10 +282,10 @@
     const body = $('trades-body');
     if (!body) return;
     if (!trades?.length) {
-      body.innerHTML = '<tr><td colspan="4" class="muted">Nessuna traccia</td></tr>';
+      body.innerHTML = '<tr><td colspan="4" class="empty">No trades yet</td></tr>';
       return;
     }
-    body.innerHTML = trades.slice(0, 12).map((t) => {
+    body.innerHTML = trades.slice(0, 15).map((t) => {
       const type = (t.type || t.side || '—').toLowerCase();
       const cls = type.includes('buy') ? 'badge-buy' : type.includes('sell') ? 'badge-sell' : '';
       const pnl = t.pnl != null ? `<span class="${pnlClass(t.pnl)}">${fmtMoney(t.pnl)}</span>` : '—';
@@ -249,7 +317,7 @@
     }
     empty?.classList.add('hidden');
 
-    const pad = { t: 10, r: 8, b: 14, l: 32 };
+    const pad = { t: 10, r: 8, b: 14, l: 36 };
     const w = cssW - pad.l - pad.r;
     const h = cssH - pad.t - pad.b;
     const vals = curve.map((p) => p.cum);
@@ -259,13 +327,13 @@
     const range = max - min;
     const zeroY = pad.t + h - ((0 - min) / range) * h;
 
-    ctx.strokeStyle = 'rgba(51,65,85,0.85)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     for (let i = 0; i <= 3; i++) {
       const y = pad.t + (h * i) / 3;
       ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + w, y); ctx.stroke();
     }
     ctx.setLineDash([3, 3]);
-    ctx.strokeStyle = 'rgba(148,163,184,0.3)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
     ctx.beginPath(); ctx.moveTo(pad.l, zeroY); ctx.lineTo(pad.l + w, zeroY); ctx.stroke();
     ctx.setLineDash([]);
 
@@ -275,7 +343,7 @@
       cum: p.cum,
     }));
     const good = pts[pts.length - 1].cum >= 0;
-    const stroke = good ? '#4ade80' : '#fb7185';
+    const stroke = good ? '#3dd68c' : '#f07178';
 
     ctx.beginPath();
     pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
@@ -283,7 +351,7 @@
     ctx.lineTo(pts[0].x, zeroY);
     ctx.closePath();
     const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + h);
-    grad.addColorStop(0, good ? 'rgba(74,222,128,0.3)' : 'rgba(251,113,133,0.28)');
+    grad.addColorStop(0, good ? 'rgba(61,214,140,0.25)' : 'rgba(240,113,120,0.22)');
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = grad;
     ctx.fill();
@@ -291,7 +359,7 @@
     ctx.beginPath();
     pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
     ctx.strokeStyle = stroke;
-    ctx.lineWidth = 2.2;
+    ctx.lineWidth = 2;
     ctx.lineJoin = 'round';
     ctx.stroke();
   }
@@ -300,7 +368,7 @@
     const el = $('stats-mini');
     if (!el) return;
     if (!perf?.closedTrades) {
-      el.innerHTML = '<span>nessun trade chiuso</span>';
+      el.innerHTML = '<span>no closed trades</span>';
       return;
     }
     el.innerHTML = [
@@ -311,79 +379,31 @@
     ].map((t) => `<span>${t}</span>`).join('');
   }
 
-  function renderHero(data) {
-    const mkt = data.market || {};
-    const bal = data.balance || {};
-    const eq = $('orb-equity-val');
-    if (eq) eq.textContent = bal.equity != null ? `$${fmtNum(bal.equity)}` : '—';
-    const mid = $('panel-mid');
-    if (mid) mid.textContent = mkt.price != null ? `$${fmtNum(mkt.price)}` : '—';
-    const up = $('panel-upnl');
-    if (up) {
-      up.textContent = fmtMoney(mkt.pnlUnrealized);
-      up.className = 'hm-v mono ' + pnlClass(mkt.pnlUnrealized);
-    }
-    const perp = $('panel-perp');
-    if (perp) perp.textContent = bal.accountValuePerp != null ? `$${fmtNum(bal.accountValuePerp)}` : '—';
-    const spot = $('panel-spot');
-    if (spot) spot.textContent = bal.usdcSpotAvailable != null ? `$${fmtNum(bal.usdcSpotAvailable)}` : '—';
-    const sc = $('panel-score');
-    if (sc) {
-      sc.textContent = mkt.score != null ? `${fmtNum(mkt.score, 0)}/${mkt.effectiveMin ?? '—'}` : '—';
-    }
-
-    // bottom ticker with live HL facts
-    const tick = $('live-ticker');
-    if (tick) {
-      const parts = [
-        `HL ${mkt.pair || '—'} ${mkt.price != null ? '$' + fmtNum(mkt.price) : '—'}`,
-        bal.equity != null ? `equity $${fmtNum(bal.equity)}` : null,
-        bal.accountValuePerp != null ? `perp $${fmtNum(bal.accountValuePerp)}` : null,
-        bal.usdcSpotAvailable != null ? `spot $${fmtNum(bal.usdcSpotAvailable)}` : null,
-        mkt.pnlUnrealized != null ? `uPnL ${fmtMoney(mkt.pnlUnrealized)}` : null,
-        mkt.funding != null ? `funding ${(mkt.funding * 100).toFixed(4)}%` : null,
-        mkt.score != null ? `score ${fmtNum(mkt.score, 0)}/${mkt.effectiveMin}` : null,
-        data.wallet?.addressShort ? `wallet ${data.wallet.addressShort}` : null,
-        `src ${data.sources?.price || '—'}/${data.sources?.portfolio || '—'}`,
-      ].filter(Boolean);
-      tick.textContent = parts.join('   ·   ');
-    }
-  }
-
   function render(data) {
-    setPill($('conn'), 'live', 'pill-ok');
-    lastOk = true;
+    setPill($('conn'), 'online', 'pill-ok');
     pushWorld(data);
-    renderThought(data);
+    renderSignal(data);
+    renderQuote(data);
     renderMeta(data);
-    renderHero(data);
-    renderWorldKv(data);
+    renderAccount(data);
+    renderRiskKv(data);
     renderWatchlist(data.watchlist);
-    renderOpenPositions(data.openPositions);
+    renderPositions(data.openPositions);
     renderTrades(data.trades);
     renderEquity(data.equityCurve || []);
     renderStats(data.performance);
-    $('last-fetch').textContent = `agg. ${fmtTime(data.ts || Date.now())}`;
-    $('refresh-sec').textContent = String(REFRESH_MS / 1000);
+    if ($('last-fetch')) $('last-fetch').textContent = fmtTime(data.ts || Date.now());
+    if ($('refresh-sec')) $('refresh-sec').textContent = String(REFRESH_MS / 1000);
   }
 
   function renderError(err) {
     setPill($('conn'), 'offline', 'pill-bad');
-    lastOk = false;
-    showBanner(
-      `<strong>Vetrina offline</strong> — ${err || 'API non raggiungibile'}`,
-      'bad'
-    );
-    if ($('thought-action')) $('thought-action').textContent = 'nebbia…';
-    if ($('thought-reason')) $('thought-reason').textContent = err || 'server assente';
-    if (world) world.setState({ active: false, blocked: false, operational: false });
+    showBanner(`Showcase offline — ${err || 'API unreachable'}`);
+    if ($('thought-action')) $('thought-action').textContent = 'Feed unavailable';
+    if ($('thought-reason')) $('thought-reason').textContent = err || '';
   }
 
   async function fetchDashboard() {
-    if (location.protocol === 'file:') {
-      renderError('apri via HTTP del bot, non file://');
-      return;
-    }
     try {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 12000);
@@ -391,28 +411,26 @@
       clearTimeout(t);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || 'payload not ok');
+      if (!data.ok) throw new Error(data.error || 'bad payload');
       hideBanner();
       render(data);
     } catch (e) {
-      renderError(e.name === 'AbortError' ? 'timeout API' : (e.message || String(e)));
+      renderError(e.name === 'AbortError' ? 'timeout' : (e.message || String(e)));
     }
   }
 
   function tickClock() {
     const el = $('clock');
-    if (el) el.textContent = new Date().toLocaleTimeString('it-IT');
+    if (el) el.textContent = new Date().toLocaleTimeString('en-GB');
   }
 
   function start() {
     const canvas = $('world-canvas');
-    if (canvas && window.H2BBMiniWorld) {
-      world = new window.H2BBMiniWorld(canvas);
-    }
+    if (canvas && window.H2BBMiniWorld) world = new window.H2BBMiniWorld(canvas);
     tickClock();
     setInterval(tickClock, 1000);
     fetchDashboard();
-    timer = setInterval(fetchDashboard, REFRESH_MS);
+    setInterval(fetchDashboard, REFRESH_MS);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
