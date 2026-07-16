@@ -43,16 +43,24 @@ function coinSymbol(pair) {
   return (pair || 'ETH').replace(/-PERP|USDC|USD|\//g, '').toUpperCase();
 }
 
-async function fetchCandles(pair, interval = '15m', limit = 120) {
+/**
+ * @param {string} pair
+ * @param {string} interval
+ * @param {number} limit - used when startTime not provided
+ * @param {{ startTime?: number, endTime?: number }} [opts]
+ */
+async function fetchCandles(pair, interval = '15m', limit = 120, opts = {}) {
   const coin = coinSymbol(pair);
   const step = INTERVAL_MS[interval] || INTERVAL_MS['15m'];
-  const endTime = Date.now();
-  const startTime = endTime - limit * step;
+  const endTime = opts.endTime != null ? opts.endTime : Date.now();
+  const startTime = opts.startTime != null
+    ? opts.startTime
+    : endTime - limit * step;
   const data = await hlInfo({
     type: 'candleSnapshot',
     req: { coin, interval, startTime, endTime },
   });
-  if (!Array.isArray(data) || data.length < 10) return null;
+  if (!Array.isArray(data) || data.length < 2) return null;
   return data.map((c) => ({
     t: c.t,
     o: parseFloat(c.o),

@@ -135,6 +135,22 @@
           <div class="watchlist" id="watchlist"></div>
         </section>
 
+        <section class="panel-section panel-section-chart">
+          <div class="section-head">
+            <h2>Price &amp; bot fills</h2>
+            <div class="chart-legend">
+              <span class="leg leg-buy">▲ buy</span>
+              <span class="leg leg-sell">▼ sell</span>
+              <span class="leg mono" id="trade-chart-meta">—</span>
+            </div>
+          </div>
+          <div class="chart-wrap trade-chart-wrap">
+            <canvas id="trade-chart" width="400" height="200" aria-label="Price chart with bot buy and sell markers"></canvas>
+            <p id="trade-chart-empty" class="chart-empty">Loading price history…</p>
+            <div id="trade-chart-tip" class="chart-tip" hidden></div>
+          </div>
+        </section>
+
         <section class="panel-section">
           <div class="section-head"><h2>Risk & ops</h2></div>
           <dl class="kv" id="world-kv"></dl>

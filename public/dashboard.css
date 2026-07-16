@@ -663,6 +663,55 @@ td.mono, th.num, td.num { font-family: var(--mono); }
   background: rgba(0, 0, 0, 0.28);
   border: 1px solid var(--border);
 }
+#trade-chart {
+  width: 100%;
+  height: 200px;
+  display: block;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border);
+  cursor: crosshair;
+}
+.trade-chart-wrap { min-height: 200px; }
+.panel-section-chart .section-head {
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.58rem;
+  color: var(--faint);
+}
+.leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 650;
+}
+.leg-buy { color: var(--good); }
+.leg-sell { color: var(--bad); }
+.chart-tip {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.65rem;
+  font-family: var(--mono);
+  line-height: 1.35;
+  color: var(--text);
+  background: rgba(8, 12, 20, 0.94);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  max-width: 220px;
+  white-space: pre-line;
+}
+.chart-tip[hidden] { display: none !important; }
 .chart-empty {
   position: absolute;
   inset: 0;

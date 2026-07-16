@@ -14,10 +14,114 @@ const performance = require('../../performance');
 const eventLog = require('../../event-log');
 const shared = require('../../state/shared');
 const realData = require('../../lib/real-data');
+const marketData = require('../../market-data');
 
 const router = express.Router();
 
 const HEARTBEAT_FILE = path.join(DATA_DIR, 'cache', 'heartbeat.json');
+
+/** Cache price chart so 5s dashboard poll does not hammer HL candles. */
+let priceChartCache = { key: null, at: 0, data: null };
+const PRICE_CHART_TTL_MS = 45_000;
+
+function tradeTimestampMs(t) {
+  const raw = t.timestamp ?? t.ts ?? t.time ?? t.at ?? t.loggedAt;
+  if (raw == null) return null;
+  if (typeof raw === 'number') return raw < 1e12 ? raw * 1000 : raw;
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * OHLCV close series + bot buy/sell markers for the active pair.
+ */
+async function buildPriceChart(pair, trades) {
+  const p = String(pair || 'ETH').toUpperCase();
+  const markers = (trades || [])
+    .filter((t) => String(t.pair || '').toUpperCase() === p)
+    .filter((t) => {
+      const ty = String(t.type || t.side || '').toLowerCase();
+      return ty === 'buy' || ty === 'sell';
+    })
+    .map((t) => {
+      const tms = tradeTimestampMs(t);
+      const price = Number(t.price ?? t.mid);
+      if (tms == null || !Number.isFinite(price) || price <= 0) return null;
+      const ty = String(t.type || t.side || '').toLowerCase();
+      return {
+        t: tms,
+        type: ty === 'sell' ? 'sell' : 'buy',
+        price,
+        amount: t.amount != null ? Number(t.amount) : null,
+        pnl: t.pnl != null ? Number(t.pnl) : null,
+        pair: p,
+        mode: t.mode || null,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.t - b.t);
+
+  const now = Date.now();
+  let start = now - 7 * 86_400_000;
+  if (markers.length) {
+    start = Math.min(...markers.map((m) => m.t)) - 12 * 3_600_000;
+  }
+  // Cap lookback (HL candleSnapshot has practical limits)
+  const maxLookback = 45 * 86_400_000;
+  if (now - start > maxLookback) start = now - maxLookback;
+
+  const span = now - start;
+  let interval = '1h';
+  if (span > 21 * 86_400_000) interval = '4h';
+  else if (span > 5 * 86_400_000) interval = '1h';
+  else if (span > 2 * 86_400_000) interval = '15m';
+  else interval = '5m';
+
+  const cacheKey = `${p}:${interval}:${Math.floor(start / 3_600_000)}:${markers.length}`;
+  if (
+    priceChartCache.data &&
+    priceChartCache.key === cacheKey &&
+    now - priceChartCache.at < PRICE_CHART_TTL_MS
+  ) {
+    return priceChartCache.data;
+  }
+
+  let candles = null;
+  try {
+    candles = await marketData.fetchCandles(p, interval, 500, {
+      startTime: start,
+      endTime: now,
+    });
+  } catch (e) {
+    console.error('[DASHBOARD] price chart candles:', e.message);
+  }
+
+  const series = (candles || []).map((c) => ({
+    t: c.t,
+    o: c.o,
+    h: c.h,
+    l: c.l,
+    c: c.c,
+  }));
+
+  const t0 = series.length ? series[0].t : start;
+  const step = marketData.INTERVAL_MS[interval] || 3_600_000;
+  const t1 = series.length ? series[series.length - 1].t + step : now;
+  const visible = markers.filter((m) => m.t >= t0 - step && m.t <= t1 + step);
+
+  const payload = {
+    pair: p,
+    interval,
+    from: t0,
+    to: t1,
+    candles: series,
+    markers: visible,
+    buys: visible.filter((m) => m.type === 'buy').length,
+    sells: visible.filter((m) => m.type === 'sell').length,
+  };
+  priceChartCache = { key: cacheKey, at: now, data: payload };
+  return payload;
+}
 
 function readHeartbeat() {
   try {
@@ -176,8 +280,10 @@ router.get('/api/dashboard', async (req, res) => {
     let trades = [];
     let events = [];
     try { stats = performance.computeStats(pair); } catch { stats = {}; }
-    try { trades = performance.loadTrades(80); } catch { trades = []; }
+    try { trades = performance.loadTrades(300); } catch { trades = []; }
     try { events = eventLog.query({ limit: 40 }); } catch { events = []; }
+
+    const priceChart = await withTimeout(buildPriceChart(pair, trades), 8000, null);
     const heartbeat = readHeartbeat();
     const snap = shared.lastTickSnapshot || {};
     const entryScore = marketSnap?.entryScore || snap.entryScore;
@@ -293,6 +399,7 @@ router.get('/api/dashboard', async (req, res) => {
       hardCaps: HARD_CAPS,
       hardFloors: HARD_FLOORS,
       performance: stats,
+      priceChart: priceChart || null,
       equityCurve: buildEquityCurve(trades, 100),
       trades: trades.slice(-30).reverse(),
       events: events.slice().reverse(),

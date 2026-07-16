@@ -4,6 +4,8 @@
   let world = null;
   let lastPrice = null;
   let flashTimer = null;
+  /** @type {{ pad: object, t0: number, t1: number, min: number, max: number, w: number, h: number, cssW: number, cssH: number, markers: Array } | null} */
+  let tradeChartGeom = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -370,6 +372,211 @@
     }).join('');
   }
 
+  function drawTriangle(ctx, x, y, dir, color) {
+    const s = 6;
+    ctx.beginPath();
+    if (dir === 'up') {
+      ctx.moveTo(x, y - s);
+      ctx.lineTo(x - s * 0.85, y + s * 0.55);
+      ctx.lineTo(x + s * 0.85, y + s * 0.55);
+    } else {
+      ctx.moveTo(x, y + s);
+      ctx.lineTo(x - s * 0.85, y - s * 0.55);
+      ctx.lineTo(x + s * 0.85, y - s * 0.55);
+    }
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  function renderTradeChart(chart) {
+    const canvas = $('trade-chart');
+    const empty = $('trade-chart-empty');
+    const meta = $('trade-chart-meta');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = canvas.clientWidth || 360;
+    const cssH = 200;
+    canvas.width = Math.floor(cssW * dpr);
+    canvas.height = Math.floor(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+    tradeChartGeom = null;
+
+    const candles = chart?.candles || [];
+    const markers = chart?.markers || [];
+
+    if (meta) {
+      if (chart?.pair) {
+        meta.textContent = `${chart.pair} · ${chart.interval || '—'} · ${chart.buys || 0}B / ${chart.sells || 0}S`;
+      } else {
+        meta.textContent = '—';
+      }
+    }
+
+    if (!candles.length) {
+      empty?.classList.remove('hidden');
+      if (empty) empty.textContent = markers.length
+        ? 'Price history unavailable (markers loaded)'
+        : 'No price history yet';
+      return;
+    }
+    empty?.classList.add('hidden');
+
+    const pad = { t: 14, r: 12, b: 22, l: 46 };
+    const w = cssW - pad.l - pad.r;
+    const h = cssH - pad.t - pad.b;
+    const t0 = candles[0].t;
+    const t1 = candles[candles.length - 1].t || t0 + 1;
+    const span = Math.max(1, t1 - t0);
+
+    const prices = candles.flatMap((c) => [c.c, c.h, c.l].filter((v) => Number.isFinite(v)));
+    markers.forEach((m) => {
+      if (Number.isFinite(m.price)) prices.push(m.price);
+    });
+    let min = Math.min(...prices);
+    let max = Math.max(...prices);
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+      min = (min || 0) - 1;
+      max = (max || 0) + 1;
+    }
+    const padY = (max - min) * 0.06;
+    min -= padY;
+    max += padY;
+    const range = max - min;
+
+    const xOf = (t) => pad.l + ((t - t0) / span) * w;
+    const yOf = (p) => pad.t + h - ((p - min) / range) * h;
+
+    // grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.045)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 3; i++) {
+      const y = pad.t + (h * i) / 3;
+      ctx.beginPath();
+      ctx.moveTo(pad.l, y);
+      ctx.lineTo(pad.l + w, y);
+      ctx.stroke();
+    }
+
+    // y labels
+    ctx.fillStyle = 'rgba(125,135,153,0.75)';
+    ctx.font = '10px "IBM Plex Mono", monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(max.toLocaleString('en-US', { maximumFractionDigits: 0 }), pad.l - 6, pad.t + 2);
+    ctx.fillText(min.toLocaleString('en-US', { maximumFractionDigits: 0 }), pad.l - 6, pad.t + h);
+    ctx.fillText(
+      ((min + max) / 2).toLocaleString('en-US', { maximumFractionDigits: 0 }),
+      pad.l - 6,
+      pad.t + h / 2
+    );
+
+    // price line + soft fill
+    const pts = candles.map((c) => ({ x: xOf(c.t), y: yOf(c.c), c: c.c, t: c.t }));
+    ctx.beginPath();
+    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.lineTo(pts[pts.length - 1].x, pad.t + h);
+    ctx.lineTo(pts[0].x, pad.t + h);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + h);
+    grad.addColorStop(0, 'rgba(106,159,212,0.16)');
+    grad.addColorStop(1, 'rgba(106,159,212,0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.beginPath();
+    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.strokeStyle = 'rgba(106, 159, 212, 0.95)';
+    ctx.lineWidth = 1.6;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // time labels
+    ctx.fillStyle = 'rgba(125,135,153,0.7)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const midT = t0 + span / 2;
+    const fmtD = (ms) => {
+      try {
+        return new Date(ms).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+      } catch {
+        return '';
+      }
+    };
+    ctx.fillText(fmtD(t0), pad.l + 8, pad.t + h + 4);
+    ctx.fillText(fmtD(midT), pad.l + w / 2, pad.t + h + 4);
+    ctx.fillText(fmtD(t1), pad.l + w - 8, pad.t + h + 4);
+
+    // markers
+    const hitMarkers = [];
+    markers.forEach((m) => {
+      const x = xOf(m.t);
+      const y = yOf(m.price);
+      if (x < pad.l - 4 || x > pad.l + w + 4) return;
+      const isBuy = m.type === 'buy';
+      drawTriangle(ctx, x, y, isBuy ? 'up' : 'down', isBuy ? '#2fd48a' : '#f06570');
+      hitMarkers.push({ ...m, x, y });
+    });
+
+    tradeChartGeom = { pad, t0, t1, min, max, w, h, cssW, cssH, markers: hitMarkers, xOf, yOf };
+  }
+
+  function onTradeChartMove(ev) {
+    const canvas = $('trade-chart');
+    const tip = $('trade-chart-tip');
+    if (!canvas || !tip || !tradeChartGeom) {
+      if (tip) tip.hidden = true;
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    const { markers } = tradeChartGeom;
+    let best = null;
+    let bestD = 14;
+    for (const m of markers) {
+      const d = Math.hypot(m.x - x, m.y - y);
+      if (d < bestD) {
+        bestD = d;
+        best = m;
+      }
+    }
+    if (!best) {
+      tip.hidden = true;
+      return;
+    }
+    const when = fmtTime(best.t);
+    const lines = [
+      `${best.type.toUpperCase()} ${best.pair || ''}`.trim(),
+      usd(best.price, 2),
+      when,
+    ];
+    if (best.amount != null) lines.push(`qty ${fmtNum(best.amount, 4)}`);
+    if (best.pnl != null) lines.push(`pnl ${money(best.pnl)}`);
+    tip.textContent = lines.join('\n');
+    tip.hidden = false;
+    const tw = tip.offsetWidth || 120;
+    const th = tip.offsetHeight || 60;
+    let left = best.x + 10;
+    let top = best.y - th - 8;
+    if (left + tw > rect.width - 4) left = best.x - tw - 10;
+    if (top < 4) top = best.y + 10;
+    tip.style.left = `${Math.max(4, left)}px`;
+    tip.style.top = `${Math.max(4, top)}px`;
+  }
+
+  function onTradeChartLeave() {
+    const tip = $('trade-chart-tip');
+    if (tip) tip.hidden = true;
+  }
+
   function renderEquity(curve) {
     const canvas = $('equity-chart');
     const empty = $('chart-empty');
@@ -496,6 +703,7 @@
     renderAccount(data);
     renderRiskKv(data);
     renderWatchlist(data.watchlist);
+    renderTradeChart(data.priceChart);
     renderPositions(data.openPositions);
     renderTrades(data.trades);
     renderEquity(data.equityCurve || []);
@@ -549,10 +757,18 @@
   function start() {
     const canvas = $('world-canvas');
     if (canvas && window.H2BBMiniWorld) world = new window.H2BBMiniWorld(canvas);
+    const tradeCanvas = $('trade-chart');
+    if (tradeCanvas) {
+      tradeCanvas.addEventListener('mousemove', onTradeChartMove);
+      tradeCanvas.addEventListener('mouseleave', onTradeChartLeave);
+    }
     tickClock();
     setInterval(tickClock, 1000);
     fetchDashboard();
     setInterval(fetchDashboard, REFRESH_MS);
+    window.addEventListener('resize', () => {
+      // redraw last chart on resize if geom exists — next poll will refresh
+    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
