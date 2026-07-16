@@ -379,13 +379,17 @@
     renderWatchlist(data.watchlist);
     renderOpenPositions(data.openPositions);
 
-    // KPIs
+    // KPIs — PAUSA = strategy.active false (niente ordini), server HTTP resta su
     const engLabel = !eng.active ? 'PAUSA' : eng.operational ? 'OPERATIVO' : 'BLOCCATO';
     $('kpi-engine').textContent = engLabel;
     $('kpi-engine').className = 'kpi-value ' + (!eng.active ? 'warn' : eng.operational ? 'good' : 'bad');
-    $('kpi-engine-sub').textContent = eng.circuitBreaker
-      ? (eng.circuitReason || 'circuit breaker')
-      : eng.riskBlocked ? 'risk blocked' : `${eng.pair || '—'} · ${eng.mode || '—'}`;
+    $('kpi-engine-sub').textContent = !eng.active
+      ? 'trading off · clicca ▶ Avvia engine (default sicuro)'
+      : eng.circuitBreaker
+        ? (eng.circuitReason || 'circuit breaker')
+        : eng.riskBlocked
+          ? 'risk blocked'
+          : `${eng.pair || '—'} · ordini automatici ON`;
 
     $('kpi-price').textContent = mkt.price != null ? `$${fmtNum(mkt.price)}` : '—';
     $('kpi-pair-sub').textContent = `${mkt.pair || eng.pair || '—'} · regime ${mkt.regime || 'n/d'}`;
@@ -580,6 +584,32 @@
     }
   }
 
+  async function setEngineActive(active) {
+    const status = $('connect-status');
+    const path = active ? '/resume' : '/pause';
+    if (active) {
+      const ok = window.confirm(
+        'Avviare il trading automatico?\n\n' +
+        '• In DEMO/OBSERVE: ordini SIMULATI (paper), non su Hyperliquid.\n' +
+        '• In LIVE (con API key): ordini REALI sul wallet.\n\n' +
+        'Confermi?'
+      );
+      if (!ok) return;
+    }
+    status.textContent = active ? 'Avvio trading…' : 'Metto in pausa…';
+    try {
+      const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'comando fallito');
+      status.textContent = active
+        ? 'Engine ATTIVO — trading automatico ON (vedi mode DEMO/LIVE).'
+        : 'Engine in PAUSA — solo lettura dati, zero ordini automatici.';
+      await fetchDashboard();
+    } catch (e) {
+      status.textContent = `Errore: ${e.message}`;
+    }
+  }
+
   function start() {
     $('btn-refresh').addEventListener('click', () => fetchDashboard());
     const form = $('connect-form');
@@ -588,6 +618,10 @@
     if (input) input.addEventListener('input', () => { input.dataset.touched = '1'; });
     const btnM = $('btn-refresh-market');
     if (btnM) btnM.addEventListener('click', refreshMarket);
+    const btnR = $('btn-resume');
+    if (btnR) btnR.addEventListener('click', () => setEngineActive(true));
+    const btnP = $('btn-pause');
+    if (btnP) btnP.addEventListener('click', () => setEngineActive(false));
     tickClock();
     setInterval(tickClock, 1000);
     fetchDashboard();
