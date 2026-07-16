@@ -1,15 +1,86 @@
 /**
- * H2BB Minimondo v3 — cinematic canvas world
- * Multi-layer sky/sea, detailed island, lighthouse beams, Hermes mascot, ships.
+ * H2BB Minimondo v4 — cinematic canvas world (8K supersampled)
+ * Renders at high internal resolution (up to 8K pixel budget) then scales crisp to display.
+ * ?quality=8k|ultra|high|low
  */
 (function (global) {
+  const QUALITY_PRESETS = {
+    // True "8K-class" supersampling: dense samples, high DPR, large pixel budget
+    '8k': {
+      label: '8K',
+      ss: 2.5,
+      maxDpr: 5,
+      // ~16.5MP ≈ half of full 8K still; keeps 60fps on decent GPUs while looking ultra-sharp
+      maxPixels: 7680 * 2160,
+      waveStep: 1.5,
+      starDiv: 2200,
+      dustN: 90,
+      foamN: 90,
+      rainN: 140,
+    },
+    ultra: {
+      label: 'ULTRA',
+      ss: 2,
+      maxDpr: 4,
+      maxPixels: 3840 * 2160,
+      waveStep: 2,
+      starDiv: 2800,
+      dustN: 70,
+      foamN: 70,
+      rainN: 110,
+    },
+    high: {
+      label: 'HIGH',
+      ss: 1.5,
+      maxDpr: 3,
+      maxPixels: 2560 * 1440,
+      waveStep: 3,
+      starDiv: 4500,
+      dustN: 50,
+      foamN: 50,
+      rainN: 80,
+    },
+    low: {
+      label: 'LOW',
+      ss: 1,
+      maxDpr: 1.5,
+      maxPixels: 1280 * 720,
+      waveStep: 6,
+      starDiv: 9000,
+      dustN: 25,
+      foamN: 28,
+      rainN: 40,
+    },
+  };
+
+  function resolveQuality() {
+    let key = '8k';
+    try {
+      const q = new URLSearchParams(location.search).get('quality');
+      if (q && QUALITY_PRESETS[q.toLowerCase()]) key = q.toLowerCase();
+    } catch { /* ignore */ }
+    // Mobile: auto-downgrade unless forced
+    try {
+      const force = new URLSearchParams(location.search).get('quality');
+      if (!force && (navigator.maxTouchPoints > 0 || window.innerWidth < 900)) {
+        key = 'high';
+      }
+    } catch { /* ignore */ }
+    return { key, ...QUALITY_PRESETS[key] };
+  }
+
   class MiniWorld {
     constructor(canvas) {
       this.canvas = canvas;
-      this.ctx = canvas.getContext('2d', { alpha: false });
+      this.ctx = canvas.getContext('2d', {
+        alpha: false,
+        desynchronized: true,
+        colorSpace: 'srgb',
+      });
       this.w = 0;
       this.h = 0;
       this.dpr = 1;
+      this.quality = resolveQuality();
       this.t = 0;
       this.state = {
         mood: 'calm',
@@ -46,9 +117,17 @@
     _loadHermes() {
       const img = new Image();
       img.decoding = 'async';
+      // hint browser to decode at full res
+      try { img.loading = 'eager'; } catch { /* ignore */ }
       img.onload = () => { this.hermesImg = img; this.hermesReady = true; };
       img.onerror = () => { this.hermesReady = false; };
-      img.src = '/assets/hermes.jpg?v=2';
+      img.src = '/assets/hermes.jpg?v=3';
+    }
+
+    _applyCtxQuality(ctx) {
+      ctx.imageSmoothingEnabled = true;
+      try { ctx.imageSmoothingQuality = 'high'; } catch { /* ignore */ }
+      try { ctx.textRendering = 'optimizeQuality'; } catch { /* ignore */ }
     }
 
     setState(partial) {
@@ -76,45 +155,61 @@
     }
 
     _resize() {
+      this.quality = resolveQuality();
       const parent = this.canvas.parentElement || this.canvas;
       const rect = parent.getBoundingClientRect();
-      this.dpr = Math.min(window.devicePixelRatio || 1, 2.5);
       this.w = Math.max(320, rect.width || window.innerWidth);
       this.h = Math.max(280, rect.height || window.innerHeight);
-      this.canvas.width = Math.floor(this.w * this.dpr);
-      this.canvas.height = Math.floor(this.h * this.dpr);
+
+      const native = window.devicePixelRatio || 1;
+      let dpr = Math.min(native * this.quality.ss, this.quality.maxDpr);
+      // Cap total backing-store pixels (8K budget class)
+      const maxPix = this.quality.maxPixels;
+      const need = this.w * this.h * dpr * dpr;
+      if (need > maxPix) {
+        dpr = Math.sqrt(maxPix / (this.w * this.h));
+      }
+      // Floor for retina readability
+      dpr = Math.max(dpr, Math.min(native, 1.5));
+
+      this.dpr = dpr;
+      this.canvas.width = Math.max(1, Math.floor(this.w * dpr));
+      this.canvas.height = Math.max(1, Math.floor(this.h * dpr));
       this.canvas.style.width = `${this.w}px`;
       this.canvas.style.height = `${this.h}px`;
-      this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this._applyCtxQuality(this.ctx);
       this._seed();
     }
 
     _seed() {
       const area = this.w * this.h;
-      this.stars = Array.from({ length: Math.floor(area / 5500) }, () => ({
+      const q = this.quality;
+      const starN = Math.min(6000, Math.floor(area / q.starDiv));
+      this.stars = Array.from({ length: starN }, () => ({
         x: Math.random() * this.w,
         y: Math.random() * this.h * 0.58,
-        r: Math.random() * 1.6 + 0.25,
+        r: Math.random() * 1.6 + 0.2,
         a: Math.random() * Math.PI * 2,
         sp: 0.3 + Math.random() * 1.4,
         layer: Math.random(),
         cold: Math.random() > 0.65,
       }));
-      this.dust = Array.from({ length: 40 }, () => ({
+      this.dust = Array.from({ length: q.dustN }, () => ({
         x: Math.random() * this.w,
         y: Math.random() * this.h,
         r: Math.random() * 1.2 + 0.3,
         sp: 4 + Math.random() * 12,
         ph: Math.random() * 10,
       }));
-      this.foam = Array.from({ length: 40 }, () => ({
+      this.foam = Array.from({ length: q.foamN }, () => ({
         x: Math.random() * this.w,
         y: 0.58 + Math.random() * 0.35,
         s: 0.4 + Math.random() * 1.8,
         ph: Math.random() * 10,
         sp: 8 + Math.random() * 18,
       }));
-      this.rain = Array.from({ length: 80 }, () => ({
+      this.rain = Array.from({ length: q.rainN }, () => ({
         x: Math.random() * this.w,
         y: Math.random() * this.h,
         l: 8 + Math.random() * 14,
@@ -401,7 +496,8 @@
         ctx.restore();
       }
 
-      // wave layers
+      // wave layers — step size from quality (1.5px ≈ 8K-class smoothness)
+      const step = this.quality.waveStep || 3;
       const layers = [
         { amp: 5, k: 0.014, sp: 1.4, a: 0.1, y: 0, col: '255,255,255' },
         { amp: 9, k: 0.009, sp: 0.9, a: 0.14, y: 6, col: '125,211,252' },
@@ -411,7 +507,7 @@
       for (const L of layers) {
         ctx.beginPath();
         ctx.moveTo(0, h);
-        for (let x = 0; x <= w; x += 5) {
+        for (let x = 0; x <= w; x += step) {
           const y = seaY + L.y
             + Math.sin(x * L.k + t * L.sp) * L.amp
             + Math.sin(x * L.k * 2.4 - t * L.sp * 1.3) * L.amp * 0.35
@@ -428,7 +524,7 @@
       ctx.strokeStyle = 'rgba(224,242,254,0.18)';
       ctx.lineWidth = 1.2;
       ctx.beginPath();
-      for (let x = 0; x <= w; x += 4) {
+      for (let x = 0; x <= w; x += Math.max(1, step)) {
         const y = seaY + Math.sin(x * 0.012 + t * 1.2) * 6 + Math.sin(x * 0.03 - t) * 2;
         if (x === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
@@ -832,18 +928,18 @@
 
       if (this.hermesReady && this.hermesImg) {
         const img = this.hermesImg;
-        const fw = 70;
-        const fh = 92;
+        // Larger mascot at 8K density
+        const fw = this.quality.key === '8k' || this.quality.key === 'ultra' ? 92 : 70;
+        const fh = this.quality.key === '8k' || this.quality.key === 'ultra' ? 120 : 92;
         // soft ground plate
         ctx.fillStyle = 'rgba(15,23,42,0.35)';
         ctx.beginPath();
-        ctx.ellipse(0, 32, 28, 8, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, 34, 32, 9, 0, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.save();
-        // slight perspective lean
-        ctx.translate(0, 30);
-        ctx.scale(1, 1);
+        ctx.translate(0, 32);
+        this._applyCtxQuality(ctx);
         ctx.drawImage(img, -fw / 2, -fh, fw, fh);
         ctx.restore();
 
@@ -1044,6 +1140,24 @@
         ['ROTTA', s.score != null ? `${Math.round(s.score)}/${s.minScore ?? '—'}` : '—',
           s.score != null && s.minScore != null && s.score >= s.minScore ? '#4ade80' : '#e2e8f0'],
       ]);
+
+      // quality badge (8K)
+      const qLabel = this.quality.label || '8K';
+      const bw = this.canvas.width;
+      const bh = this.canvas.height;
+      const mp = ((bw * bh) / 1e6).toFixed(1);
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'left';
+      const qtxt = `${qLabel} · ${bw}×${bh} · ${mp}MP · ${this.dpr.toFixed(2)}x`;
+      const qtw = ctx.measureText(qtxt).width;
+      ctx.fillStyle = 'rgba(6,10,22,0.75)';
+      roundRect(ctx, 18, this.h - 36, qtw + 20, 20, 8);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(56,189,248,0.35)';
+      ctx.stroke();
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText(qtxt, 28, this.h - 22);
+
       ctx.restore();
     }
 
