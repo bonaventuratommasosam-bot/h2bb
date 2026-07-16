@@ -1,13 +1,17 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Hermes — live Hyperliquid trading showcase (read-only)" />
+  <meta name="description" content="Hermes — live Hyperliquid autonomous trading showcase. Read-only public terminal." />
+  <meta name="theme-color" content="#06090f" />
+  <meta property="og:title" content="Hermes · Hyperliquid Live" />
+  <meta property="og:description" content="Read-only live trading terminal. Real Hyperliquid account & market data." />
+  <meta property="og:type" content="website" />
   <title>Hermes · Hyperliquid Live</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/dashboard.css" />
   <link rel="icon" href="/assets/hermes-pfp.jpg" />
 </head>
@@ -26,26 +30,30 @@
       <div class="bg-scrim" id="bg-scrim"></div>
       <canvas id="world-canvas" aria-hidden="true"></canvas>
 
-      <!-- Top status bar -->
       <header class="stage-top">
         <div class="stage-brand">
-          <img src="/assets/hermes-pfp.jpg" alt="" class="stage-avatar" width="36" height="36" />
+          <img src="/assets/hermes-pfp.jpg" alt="" class="stage-avatar" width="40" height="40" />
           <div>
-            <div class="stage-title">HERMES</div>
-            <div class="stage-sub">Autonomous Hyperliquid agent</div>
+            <div class="stage-title-row">
+              <span class="stage-title">HERMES</span>
+              <span class="stage-ver">TERMINAL</span>
+            </div>
+            <div class="stage-sub">Autonomous Hyperliquid agent · public feed</div>
           </div>
         </div>
         <div class="stage-status">
-          <span id="conn" class="pill pill-warn">…</span>
+          <span id="conn" class="pill pill-warn"><span class="pulse"></span>…</span>
           <span id="mode-pill" class="pill">—</span>
-          <span class="pill pill-muted">READ-ONLY</span>
-          <span id="clock" class="clock">—</span>
+          <span class="pill pill-muted">VIEW ONLY</span>
+          <span id="clock" class="clock mono">—</span>
         </div>
       </header>
 
-      <!-- Primary quote -->
       <section class="quote-card" id="quote-card">
-        <div class="quote-pair" id="quote-pair">ETH-PERP</div>
+        <div class="quote-head">
+          <div class="quote-pair" id="quote-pair">ETH-PERP</div>
+          <div class="quote-tag" id="quote-regime">—</div>
+        </div>
         <div class="quote-price mono" id="quote-price">—</div>
         <div class="quote-meta">
           <span id="quote-change" class="mono">—</span>
@@ -56,9 +64,8 @@
         </div>
       </section>
 
-      <!-- Signal card -->
       <section class="signal-card" id="thought">
-        <div class="signal-label">Latest signal</div>
+        <div class="signal-label">Strategy signal</div>
         <div class="signal-code mono" id="thought-code">—</div>
         <div class="signal-action" id="thought-action">Waiting for market data…</div>
         <div class="signal-reason" id="thought-reason"></div>
@@ -69,21 +76,25 @@
 
     <!-- RIGHT: data terminal -->
     <aside class="panel" id="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-kicker">Portfolio</div>
+          <div class="panel-equity mono" id="orb-equity-val">—</div>
+          <div class="panel-equity-sub">
+            <span id="panel-upnl" class="mono">—</span>
+            <span class="sep">·</span>
+            <span id="engine-badge" class="section-badge">—</span>
+          </div>
+        </div>
+        <div class="panel-latency mono" id="latency" title="Last fetch latency">—</div>
+      </div>
+
       <div class="panel-scroll">
         <section class="panel-section">
           <div class="section-head">
-            <h2>Account</h2>
-            <span class="section-badge" id="engine-badge">—</span>
+            <h2>Account breakdown</h2>
           </div>
           <div class="metric-grid">
-            <div class="metric">
-              <span class="metric-label">Equity</span>
-              <span class="metric-value mono" id="orb-equity-val">—</span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Unrealized PnL</span>
-              <span class="metric-value mono" id="panel-upnl">—</span>
-            </div>
             <div class="metric">
               <span class="metric-label">Perp account value</span>
               <span class="metric-value mono" id="panel-perp">—</span>
@@ -91,6 +102,14 @@
             <div class="metric">
               <span class="metric-label">Spot available</span>
               <span class="metric-value mono" id="panel-spot">—</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Margin used</span>
+              <span class="metric-value mono" id="panel-margin">—</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Spot hold</span>
+              <span class="metric-value mono" id="panel-hold">—</span>
             </div>
           </div>
           <p class="wallet-line mono" id="connect-status"></p>
@@ -117,9 +136,9 @@
         </section>
 
         <section class="panel-section">
-          <div class="section-head"><h2>Risk</h2></div>
+          <div class="section-head"><h2>Risk & ops</h2></div>
           <dl class="kv" id="world-kv"></dl>
-          <p class="muted small" id="hl-truth-line"></p>
+          <p class="truth-line mono" id="hl-truth-line"></p>
         </section>
 
         <section class="panel-section">
@@ -130,19 +149,19 @@
                 <tr>
                   <th>Asset</th>
                   <th>Side</th>
-                  <th>Size</th>
-                  <th>uPnL</th>
+                  <th class="num">Size</th>
+                  <th class="num">uPnL</th>
                 </tr>
               </thead>
               <tbody id="positions-body">
-                <tr><td colspan="4" class="empty">No open positions</td></tr>
+                <tr><td colspan="4" class="empty">Flat — no open positions</td></tr>
               </tbody>
             </table>
           </div>
         </section>
 
         <section class="panel-section">
-          <div class="section-head"><h2>Recent trades</h2></div>
+          <div class="section-head"><h2>Recent fills</h2></div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -150,37 +169,42 @@
                   <th>Time</th>
                   <th>Side</th>
                   <th>Pair</th>
-                  <th>PnL</th>
+                  <th class="num">PnL</th>
                 </tr>
               </thead>
               <tbody id="trades-body">
-                <tr><td colspan="4" class="empty">No trades yet</td></tr>
+                <tr><td colspan="4" class="empty">No closed trades yet</td></tr>
               </tbody>
             </table>
           </div>
         </section>
 
         <section class="panel-section">
-          <div class="section-head"><h2>Performance</h2></div>
-          <div class="chart-wrap">
-            <canvas id="equity-chart" width="400" height="120"></canvas>
-            <p id="chart-empty" class="chart-empty">No closed trades</p>
+          <div class="section-head">
+            <h2>Equity curve</h2>
+            <div class="stats-mini" id="stats-mini"></div>
           </div>
-          <div class="stats-mini" id="stats-mini"></div>
+          <div class="chart-wrap">
+            <canvas id="equity-chart" width="400" height="140"></canvas>
+            <p id="chart-empty" class="chart-empty">No closed trades to plot</p>
+          </div>
         </section>
       </div>
 
       <footer class="panel-foot">
-        <span>Auto-refresh <strong id="refresh-sec">5</strong>s</span>
+        <span class="foot-dot" id="foot-dot"></span>
+        <span>Refresh <strong id="refresh-sec">5</strong>s</span>
         <span class="sep">·</span>
-        <span id="last-fetch">—</span>
+        <span id="last-fetch" class="mono">—</span>
         <span class="sep">·</span>
-        <a href="/api/dashboard" target="_blank" rel="noopener">API</a>
+        <a href="/api/dashboard" target="_blank" rel="noopener">JSON API</a>
+        <span class="sep">·</span>
+        <span class="foot-note">Hyperliquid · read-only</span>
       </footer>
     </aside>
   </div>
 
-  <!-- hidden compat ids -->
+  <!-- hidden compat ids for legacy selectors -->
   <div class="sr-only" aria-hidden="true">
     <span id="showcase-pill"></span>
     <span id="data-mode-pill"></span>
