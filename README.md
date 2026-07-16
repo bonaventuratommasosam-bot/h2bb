@@ -73,6 +73,19 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 Il meta-controller può solo muoversi **dentro** questi limiti.
 
+### Circuit breaker sticky (post-review)
+
+| Tipo | Auto-clear | Chi può sbloccare |
+|------|------------|-------------------|
+| **Daily loss** | Solo **nuovo giorno** (UTC date) | Operatore `resume` / `reset risk` (force) |
+| **Drawdown** | No | Solo operatore (force) |
+
+- **Niente** auto-unblock se flat + CB  
+- **Niente** auto-resume entry dopo close se CB attivo  
+- Meta: min **15 trade** + **48h** prima di rollback/risk-up (env `META_MIN_TRADES`, `META_MIN_MS_POST_CHANGE`)  
+- Strategy experiment: **paper only** (non applica live)  
+- Shadow auto-promote: default **OFF** (`SHADOW_AUTO_PROMOTE=1` per abilitare; N default 40)
+
 ## Hermes Terminal (dashboard web)
 
 Terminal **pubblico, view-only**: mostra lo stato del bot e i dati Hyperliquid.  

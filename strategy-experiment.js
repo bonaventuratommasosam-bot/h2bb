@@ -158,7 +158,9 @@ async function runExperiment(strategy) {
     ? ((challengerQuality - championQuality) / championQuality) * 100
     : 0;
 
-  const promoted = improvement >= 10; // +10% minimum improvement
+  // Paper suggestion only — never auto-apply to live strategy (statistical toy on 7d 15m)
+  const suggested = improvement >= 15; // stricter paper bar
+  const promoted = false;
 
   const entry = {
     ts: new Date().toISOString(),
@@ -170,6 +172,8 @@ async function runExperiment(strategy) {
     challengerQuality,
     improvement: Math.round(improvement * 10) / 10,
     promoted,
+    suggested,
+    paperOnly: true,
     championSignals: championResult.buySignals,
     challengerSignals: challengerResult.buySignals,
     pair,
@@ -182,9 +186,9 @@ async function runExperiment(strategy) {
   return {
     ok: true,
     ...entry,
-    message: promoted
-      ? `✅ PROMOSSO: ${param.label} ${currentVal}→${newVal} (+${Math.round(improvement)}% quality). Applica?`
-      : `❌ NON promosso: ${param.label} ${currentVal}→${newVal} (${Math.round(improvement)}% improvement, soglia 10%)`,
+    message: suggested
+      ? `PAPER ONLY: ${param.label} ${currentVal}→${newVal} (+${Math.round(improvement)}% quality su 7d). NON applicato live.`
+      : `Paper: ${param.label} ${currentVal}→${newVal} (${Math.round(improvement)}% vs soglia 15%) — scartato`,
   };
 }
 

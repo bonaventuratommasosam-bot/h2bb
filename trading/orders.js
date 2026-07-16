@@ -61,9 +61,11 @@ function notifyOwner(title, detail, trade, signal) {
   else if (title) alerts.notifyAlert(chatId, title, detail);
 }
 
-async function unblockRiskBaseline() {
+async function unblockRiskBaseline({ forceClearSticky = false } = {}) {
   const equity = await getEquity();
-  shared.riskState = riskManager.resetRiskForResume(shared.riskState, equity);
+  shared.riskState = riskManager.resetRiskForResume(shared.riskState, equity, {
+    forceClearSticky,
+  });
   return shared.riskState;
 }
 
@@ -81,16 +83,30 @@ let _runTick = null;
 function setRunTickFn(fn) { _runTick = fn; }
 
 async function resumeTradingAfterEngineClose() {
+  const { canAutoResumeTrading } = require('../risk-manager');
+  if (!canAutoResumeTrading(shared.riskState)) {
+    console.warn('[AUTO-RESUME] Bloccato: circuit breaker sticky/attivo — serve resume operatore');
+    notifyOwner(
+      'Auto-resume bloccato',
+      `Posizione chiusa ma CB attivo (${shared.riskState?.circuitReason || 'n/d'}). Nessuna riapertura automatica.`
+    );
+    return { ok: false, blocked: true, reason: shared.riskState?.circuitReason };
+  }
+  // Soft baseline only if no sticky CB (canAutoResume already false when CB on)
   await unblockRiskBaseline();
-  const wasPaused = !shared.strategy.active;
+  if (!canAutoResumeTrading(shared.riskState)) {
+    return { ok: false, blocked: true };
+  }
   shared.strategy.active = true;
   if (_restartLoop) _restartLoop();
   if (_runTick) setTimeout(_runTick, 1000);
-  console.log('[AUTO-RESUME] Trading ripreso dopo chiusura posizione');
-  notifyOwner('Auto-resume', `Trading ripreso automaticamente dopo chiusura posizione. ${shared.strategy.pair} monitorato.`);
+  console.log('[AUTO-RESUME] Trading ripreso dopo chiusura posizione (no sticky CB)');
+  notifyOwner('Auto-resume', `Trading ripreso dopo chiusura. ${shared.strategy.pair} monitorato.`);
+  return { ok: true };
 }
 
 async function executeMarketBuy(pairOverride, amountOverride) {
+  const orderJournal = require('../lib/order-journal');
   try {
     const p = pairOverride || shared.strategy.pair;
     const a = amountOverride || shared.strategy.amountPerTrade;
@@ -99,22 +115,71 @@ async function executeMarketBuy(pairOverride, amountOverride) {
       return { ok: false, error: 'Strategia in pausa. Usa /resume o chiama POST /resume' };
     }
 
+    // Sticky CB: block new risk-taking (manual override amount still blocked if CB sticky)
+    if (!riskManager.canAutoResumeTrading(shared.riskState) && !amountOverride) {
+      return {
+        ok: false,
+        error: `Circuit breaker attivo: ${shared.riskState?.circuitReason || 'risk blocked'}`,
+      };
+    }
+
     if (isLiveMode()) {
       const w = loadWallet();
+      const mid = await getPrice(p);
+      const maxSlipBps = Math.round((shared.strategy.maxSlippageBps
+        ?? (shared.strategy.maxSlippage != null ? shared.strategy.maxSlippage * 100 : 15)));
+      const clientOid = `buy-${p}-${Date.now().toString(36)}`;
+      orderJournal.intent({
+        side: 'buy', pair: p, size: a, mid, maxSlippageBps: maxSlipBps,
+        source: amountOverride ? 'manual' : 'engine', clientOid,
+      });
+
+      // Soft pre-trade: if recent avg slip exceeds cap, reject new entries
+      try {
+        const execSummary = executionFill.getExecutionSummary?.() || {};
+        if (
+          execSummary.avgSlippageBps != null
+          && execSummary.sampleSize >= 3
+          && execSummary.avgSlippageBps > maxSlipBps
+        ) {
+          orderJournal.rejected(clientOid, `avg slip ${execSummary.avgSlippageBps}bps > max ${maxSlipBps}`);
+          return {
+            ok: false,
+            error: `Slippage medio ${execSummary.avgSlippageBps} bps > max ${maxSlipBps} — entry bloccata`,
+          };
+        }
+      } catch { /* optional guard */ }
+
+      orderJournal.sent(clientOid, { mid });
       const live = await hlLive.placeMarketOrder({
         walletAddress: w.address, privateKey: walletKey(w), pair: p,
         isBuy: true, size: a, slippage: liveSlippage(), reduceOnly: false,
       });
-      if (!live.ok) return live;
+      if (!live.ok) {
+        orderJournal.rejected(clientOid, live.error || 'hl reject');
+        return live;
+      }
+      // Post-fill slip check (alert, trade already happened)
+      const fillPx = parseFloat(live.trade?.price || 0);
+      if (mid > 0 && fillPx > 0) {
+        const slipBps = Math.round(Math.abs(fillPx - mid) / mid * 10000);
+        if (slipBps > maxSlipBps * 2) {
+          console.warn(`[EXEC] Extreme fill slip ${slipBps} bps (max ${maxSlipBps})`);
+        }
+      }
       const trade = {
         id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         timestamp: new Date().toISOString(),
         ...live.trade,
+        clientOid,
         note: amountOverride ? 'ordine manuale cliente (LIVE)' : 'DCA automatico (LIVE)',
       };
       appendTrade(trade);
       shared.lastTrade = trade;
       if (trade.mode === 'live') executionFill.logExecution(trade);
+      orderJournal.filled(clientOid, {
+        price: trade.price, amount: trade.amount, hlOid: trade.hlOid, slipBps: trade.slippageBps,
+      });
       eventLog.orderFill({ id: trade.id, type: 'buy', pair: p, amount: trade.amount, price: trade.price, value: trade.value, mode: trade.mode, hlOid: trade.hlOid });
       const { syncLiveBalance } = require('./balance');
       await syncLiveBalance();

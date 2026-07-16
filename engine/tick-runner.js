@@ -84,11 +84,20 @@ async function runProactiveCheck() {
     // Loop 3: strategy-experiment ogni 7 giorni
     try {
       if (experiment.shouldRun()) {
-        console.log('[EXPERIMENT] Avvio esperimento strategia...');
+        console.log('[EXPERIMENT] Avvio esperimento strategia (paper only — no live promote)...');
         const expResult = await experiment.runExperiment(shared.strategy);
         if (expResult.ok) {
+          // Never auto-apply challenger to live strategy (statistical toy)
           console.log(`[EXPERIMENT] ${expResult.message}`);
-          eventLog.strategyChange({ source: 'experiment', param: expResult.param, champion: expResult.championValue, challenger: expResult.challengerValue, promoted: expResult.promoted });
+          eventLog.strategyChange({
+            source: 'experiment',
+            param: expResult.param,
+            champion: expResult.championValue,
+            challenger: expResult.challengerValue,
+            promoted: false,
+            suggested: !!expResult.promoted,
+            paperOnly: true,
+          });
         }
       }
     } catch (e) {
@@ -118,24 +127,30 @@ async function _runTickInternal() {
   if (!shared.strategy.active) return;
 
   const position = await getPositionSize(shared.strategy.pair);
-  const hasPosition = Math.abs(position) > 1e-9;
-  if (!hasPosition && shared.riskState.circuitBreaker && /drawdown|giornaliera|perdita/i.test(shared.riskState.circuitReason || '')) {
-    await unblockRiskBaseline();
-    console.log('[AUTO-RESUME] Flat + drawdown CB — baseline risk aggiornata');
-  }
+  // REMOVED: auto-unblock when flat + daily/drawdown CB.
+  // Sticky CB stays until new day (daily) or explicit operator resume (drawdown).
 
   const price = await getPrice(shared.strategy.pair);
   if (shared.strategy.stopLoss && price < shared.strategy.stopLoss) {
     console.log(`[STOP-LOSS] ${shared.strategy.pair} @ ${price} < ${shared.strategy.stopLoss}`);
     const slRes = await executeMarketSell(shared.strategy.pair, 1);
-    if (slRes.ok) await resumeTradingAfterEngineClose();
+    // Only re-arm entries if risk allows auto-resume (never with sticky CB)
+    if (slRes.ok && riskManager.canAutoResumeTrading(shared.riskState)) {
+      await resumeTradingAfterEngineClose();
+    } else if (slRes.ok) {
+      console.log('[RISK] Position closed — sticky CB prevents auto re-entry');
+    }
     writeHeartbeat({ price });
     return;
   }
   if (shared.strategy.takeProfit && price > shared.strategy.takeProfit) {
     console.log(`[TAKE-PROFIT] ${shared.strategy.pair} @ ${price} > ${shared.strategy.takeProfit}`);
     const tpRes = await executeMarketSell(shared.strategy.pair, 1);
-    if (tpRes.ok) await resumeTradingAfterEngineClose();
+    if (tpRes.ok && riskManager.canAutoResumeTrading(shared.riskState)) {
+      await resumeTradingAfterEngineClose();
+    } else if (tpRes.ok) {
+      console.log('[RISK] Position closed — sticky CB prevents auto re-entry');
+    }
     writeHeartbeat({ price });
     return;
   }

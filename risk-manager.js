@@ -16,8 +16,34 @@ const DEFAULT_RISK_STATE = {
   cooldownUntil: null,
   circuitBreaker: false,
   circuitReason: null,
+  /** stickyKind: 'daily' | 'drawdown' | null — daily clears only on new day; drawdown needs operator */
+  stickyKind: null,
   lastUpdated: null,
 };
+
+function isDailyLossReason(reason) {
+  return /giornalier|daily\s*loss|perdita\s*giornal/i.test(String(reason || ''));
+}
+
+function isDrawdownReason(reason) {
+  return /drawdown|picco/i.test(String(reason || ''));
+}
+
+/**
+ * Auto-resume / baseline reset are forbidden while sticky CB is active.
+ * Daily sticky expires on calendar day roll (handled in resetDayIfNeeded).
+ * Drawdown sticky requires explicit operator clear (forceClearSticky).
+ */
+function canAutoResumeTrading(state) {
+  if (!state) return true;
+  if (!state.circuitBreaker) return true;
+  // Any active CB blocks auto-resume of new risk-taking
+  return false;
+}
+
+function isStickyCircuitBreaker(state) {
+  return !!(state && state.circuitBreaker && state.stickyKind);
+}
 
 function loadRiskState() {
   try {
@@ -44,9 +70,20 @@ function dayKeyNow() {
 function resetDayIfNeeded(state, equity) {
   const dk = dayKeyNow();
   if (state.dayKey !== dk) {
+    const prevKey = state.dayKey;
     state.dayKey = dk;
     state.dayStartEquity = equity;
     state.dayPnl = 0;
+    // New calendar day: clear *daily* sticky CB only (not drawdown sticky)
+    if (
+      state.circuitBreaker
+      && (state.stickyKind === 'daily' || isDailyLossReason(state.circuitReason))
+    ) {
+      console.log(`[RISK] New day ${dk} (was ${prevKey}) — clearing daily circuit breaker`);
+      state.circuitBreaker = false;
+      state.circuitReason = null;
+      state.stickyKind = null;
+    }
   }
   if (state.peakEquity == null || equity > state.peakEquity) {
     state.peakEquity = equity;
@@ -74,6 +111,7 @@ function checkCanTrade(strategy, state, equity) {
     s.dayPnl = equity - s.dayStartEquity;
     if (dayLossPct <= -maxDaily) {
       s.circuitBreaker = true;
+      s.stickyKind = 'daily';
       s.circuitReason = `perdita giornaliera ${dayLossPct.toFixed(2)}% (limite -${maxDaily}%)`;
       // FIX BUG1: NON salvare qui — lo stato è ritornato e il chiamante
       // (pro-engine/autonomous-engine) fa saveRiskState. Evita doppia write.
@@ -86,6 +124,7 @@ function checkCanTrade(strategy, state, equity) {
     const dd = ((equity - s.peakEquity) / s.peakEquity) * 100;
     if (dd <= -maxDd) {
       s.circuitBreaker = true;
+      s.stickyKind = 'drawdown';
       s.circuitReason = `drawdown ${dd.toFixed(2)}% dal picco (limite -${maxDd}%)`;
       // FIX BUG1: idem, niente save interno
       return { allowed: false, state: s, reasons: [s.circuitReason] };
@@ -181,20 +220,47 @@ function computePositionSize({ equity, price, atr, strategy }) {
   };
 }
 
-function resetCircuitBreaker(state) {
-  const s = { ...state, circuitBreaker: false, circuitReason: null, cooldownUntil: null };
+/**
+ * Clear CB. By default refuses sticky daily/drawdown unless force=true (operator).
+ */
+function resetCircuitBreaker(state, { force = false } = {}) {
+  const s = { ...state };
+  if (s.circuitBreaker && s.stickyKind && !force) {
+    console.warn(`[RISK] Refuse clear sticky CB (${s.stickyKind}): ${s.circuitReason}`);
+    return s;
+  }
+  s.circuitBreaker = false;
+  s.circuitReason = null;
+  s.stickyKind = null;
+  s.cooldownUntil = null;
   saveRiskState(s);
   return s;
 }
 
-function resetRiskForResume(state, equity) {
-  const s = resetCircuitBreaker(state);
+/**
+ * Operator / explicit resume only when forceClearSticky.
+ * Auto paths must use canAutoResumeTrading first and never force.
+ */
+function resetRiskForResume(state, equity, { forceClearSticky = false } = {}) {
+  if (state?.circuitBreaker && !forceClearSticky) {
+    if (!canAutoResumeTrading(state)) {
+      console.warn('[RISK] resetRiskForResume blocked — sticky/active circuit breaker');
+      return state;
+    }
+  }
+  const s = resetCircuitBreaker(state, { force: forceClearSticky });
+  if (s.circuitBreaker) return s; // still stuck
   const eq = equity > 0 ? equity : (s.peakEquity || s.dayStartEquity || 0);
   if (eq > 0) {
-    s.peakEquity = eq;
-    s.dayStartEquity = eq;
-    s.dayPnl = 0;
-    s.dayKey = dayKeyNow();
+    // Do NOT rewrite dayStartEquity mid-day on auto paths — only on force operator resume
+    if (forceClearSticky) {
+      s.peakEquity = eq;
+      s.dayStartEquity = eq;
+      s.dayPnl = 0;
+      s.dayKey = dayKeyNow();
+    } else if (s.peakEquity == null || eq > s.peakEquity) {
+      s.peakEquity = eq;
+    }
     s.consecutiveLosses = 0;
   }
   saveRiskState(s);
@@ -225,4 +291,5 @@ module.exports = {
   loadRiskState, saveRiskState, checkCanTrade, recordTradeResult,
   computePositionSize, computeBudgetOrderSize, resetCircuitBreaker,
   resetRiskForResume, formatRiskStatus, resetDayIfNeeded,
+  canAutoResumeTrading, isStickyCircuitBreaker, isDailyLossReason, isDrawdownReason,
 };

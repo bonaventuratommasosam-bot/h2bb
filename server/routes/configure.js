@@ -43,12 +43,13 @@ router.post('/pause', (req, res) => {
 
 router.post('/resume', async (req, res) => {
   try {
-    await unblockRiskBaseline();
+    // Operator localhost only (localOnly middleware) — force clear sticky CB
+    await unblockRiskBaseline({ forceClearSticky: true });
     shared.strategy.active = true;
     saveStrategy();
     if (_restartLoop) _restartLoop();
     if (_runTick) setTimeout(_runTick, 1000);
-    res.json({ ok: true, reply: 'Trading autonomo ripreso.' });
+    res.json({ ok: true, reply: 'Trading autonomo ripreso (operator clear sticky CB).' });
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });
 

@@ -68,6 +68,13 @@ function onServerReady(boundHost) {
   console.log(`  → API:       ${base}/api/dashboard`);
   console.log(`  → Controlli: solo localhost (/resume /pause /chat /wallet)\n`);
 
+  try {
+    const { HARD_CAPS, HARD_FLOORS } = require('./lib/hard-caps');
+    console.log('[RISK] Effective hard caps:', JSON.stringify(HARD_CAPS));
+    console.log('[RISK] Floors:', JSON.stringify(HARD_FLOORS));
+    console.log('[RISK] Sticky CB: daily clears on new day; drawdown needs operator resume');
+  } catch { /* ignore */ }
+
   hermesProfile.ensureProfile(DATA_DIR, {
     agentName: `client-trade-${process.env.ORDER_ID || '1'}`,
     pair: shared.strategy.pair,

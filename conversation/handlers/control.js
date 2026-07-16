@@ -19,13 +19,14 @@ function handlePause() {
 }
 
 async function handleResume() {
-  await unblockRiskBaseline();
+  // Operator explicit: force clear sticky daily/drawdown CB
+  await unblockRiskBaseline({ forceClearSticky: true });
   shared.strategy.active = true;
   saveStrategy();
   if (_restartLoop) _restartLoop();
   if (_runTick) setTimeout(_runTick, 1000);
   const label = shared.strategy.mode === 'pro' ? 'PRO' : 'autonomo';
-  return `▶️ *Trading ${label} ripreso!*\nAnalisi ogni ${shared.strategy.checkIntervalSeconds}s · score min ${shared.strategy.minConfidenceScore ?? 65}`;
+  return `▶️ *Trading ${label} ripreso!*\nCB sticky azzerato da operatore.\nAnalisi ogni ${shared.strategy.checkIntervalSeconds}s · score min ${shared.strategy.minConfidenceScore ?? 65}`;
 }
 
 async function handleKill() {
@@ -35,12 +36,14 @@ async function handleKill() {
   if (Math.abs(pos) > 1e-9) {
     const res = await executeMarketSell(shared.strategy.pair, 1);
     if (res.ok) {
-      shared.riskState = riskManager.resetCircuitBreaker(shared.riskState);
+      shared.riskState = riskManager.resetCircuitBreaker(shared.riskState, { force: true });
+      saveRiskState(shared.riskState);
       return `🛑 *KILL SWITCH* — trading fermato e posizione chiusa.\nVenduti ${res.trade.amount.toFixed(6)} ${shared.strategy.pair} @ ${res.trade.price.toFixed(2)}`;
     }
     return `🛑 Trading fermato. Errore chiusura: ${res.error}`;
   }
-  shared.riskState = riskManager.resetCircuitBreaker(shared.riskState);
+  shared.riskState = riskManager.resetCircuitBreaker(shared.riskState, { force: true });
+  saveRiskState(shared.riskState);
   return '🛑 *KILL SWITCH* — trading fermato. Nessuna posizione aperta.';
 }
 
@@ -65,14 +68,14 @@ function handleConfigure() {
 }
 
 async function handleResetRisk() {
-  await unblockRiskBaseline();
+  await unblockRiskBaseline({ forceClearSticky: true });
   if (!shared.strategy.active) {
     shared.strategy.active = true;
     saveStrategy();
     if (_restartLoop) _restartLoop();
     if (_runTick) setTimeout(_runTick, 1000);
   }
-  return '✅ Risk manager resettato (baseline aggiornata). Trading ripreso — monitoro il mercato.';
+  return '✅ Risk manager resettato da operatore (sticky CB cleared, baseline aggiornata). Trading ripreso.';
 }
 
 module.exports = { handlePause, handleResume, handleKill, handleInterval, handleConfigure, handleResetRisk, setControlFns };

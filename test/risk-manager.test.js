@@ -92,4 +92,47 @@ describe('risk-manager', () => {
     assert.ok(state.cooldownUntil > Date.now());
     assert.equal(state.consecutiveLosses, 0);
   });
+
+  it('sticky daily CB blocks auto-resume and soft reset', () => {
+    const strategy = { maxDailyLossPercent: 2, maxDrawdownPercent: 8 };
+    const state = {
+      dayKey: new Date().toISOString().slice(0, 10),
+      dayStartEquity: 1000,
+      dayPnl: -30,
+      peakEquity: 1000,
+      consecutiveLosses: 0,
+      cooldownUntil: null,
+      circuitBreaker: false,
+      circuitReason: null,
+      stickyKind: null,
+    };
+    const r = risk.checkCanTrade(strategy, state, 970);
+    assert.equal(r.allowed, false);
+    assert.equal(r.state.stickyKind, 'daily');
+    assert.equal(risk.canAutoResumeTrading(r.state), false);
+    const soft = risk.resetRiskForResume(r.state, 970, { forceClearSticky: false });
+    assert.equal(soft.circuitBreaker, true);
+    const hard = risk.resetRiskForResume(r.state, 970, { forceClearSticky: true });
+    assert.equal(hard.circuitBreaker, false);
+    assert.equal(hard.stickyKind, null);
+  });
+
+  it('new calendar day clears daily sticky CB only', () => {
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const state = {
+      dayKey: yesterday,
+      dayStartEquity: 1000,
+      dayPnl: -50,
+      peakEquity: 1000,
+      consecutiveLosses: 0,
+      cooldownUntil: null,
+      circuitBreaker: true,
+      circuitReason: 'perdita giornaliera -3.00% (limite -2%)',
+      stickyKind: 'daily',
+    };
+    const s = risk.resetDayIfNeeded({ ...state }, 980);
+    assert.equal(s.circuitBreaker, false);
+    assert.equal(s.stickyKind, null);
+    assert.equal(s.dayKey, new Date().toISOString().slice(0, 10));
+  });
 });

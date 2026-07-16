@@ -23,6 +23,11 @@ const POS_MAX   = HARD_CAPS.maxPositionPercent;
 const LOSS_MIN  = HARD_FLOORS.consecutiveLossLimit;
 const LOSS_MAX  = HARD_CAPS.consecutiveLossLimit;
 
+// Statistical gates (was N=5 — too noisy)
+const MIN_TRADES_PERF = parseInt(process.env.META_MIN_TRADES || '15', 10);
+const MIN_TRADES_ROLLBACK = parseInt(process.env.META_ROLLBACK_TRADES || '15', 10);
+const MIN_MS_POST_CHANGE = parseInt(process.env.META_MIN_MS_POST_CHANGE || String(48 * 3600_000), 10);
+
 // Modalità operative
 const MODES = {
   trade:   { label: 'trade',   desc: 'Trading normale',       sizePct: 1.0,  scoreBoost: 0 },
@@ -90,8 +95,9 @@ function evaluate(strategy, balance) {
   let adjustments = {};
 
   // RISK ADJUSTMENT (autonomous — based on performance, independent of mode)
-  const goodPerf = fb.rollingWinRate > 55 && fb.profitFactor > 1.5 && fb.closedTrades >= 5;
-  const badPerf  = fb.rollingWinRate < 40 && fb.profitFactor < 0.8 && fb.closedTrades >= 5;
+  // Require larger sample before risk-up (avoid lucky streak)
+  const goodPerf = fb.rollingWinRate > 55 && fb.profitFactor > 1.5 && fb.closedTrades >= MIN_TRADES_PERF;
+  const badPerf  = fb.rollingWinRate < 40 && fb.profitFactor < 0.8 && fb.closedTrades >= Math.min(10, MIN_TRADES_PERF);
   const currentRisk = strategy.riskPerTradePercent ?? 0.5;
   const currentPos  = strategy.maxPositionPercent ?? 20;
   const currentLoss = strategy.consecutiveLossLimit ?? 3;
@@ -132,7 +138,7 @@ function evaluate(strategy, balance) {
   }
 
   // REDUCE: profit factor negativo sulle ultime
-  else if (fb.profitFactor < 0.8 && fb.closedTrades >= 5 && state.currentMode === 'trade') {
+  else if (fb.profitFactor < 0.8 && fb.closedTrades >= Math.min(10, MIN_TRADES_PERF) && state.currentMode === 'trade') {
     newMode = 'reduce';
     reason = `Profit factor ${fb.profitFactor} — Riduco aggressività`;
     adjustments = {
@@ -284,16 +290,36 @@ function afterTrade(strategy) {
   const state = loadState();
   state.tradesSinceChange = (state.tradesSinceChange || 0) + 1;
 
-  // Rollback check: dopo 5 trade post-change, verifica se siamo peggiorati
-  if (state.tradesSinceChange >= 5 && state.preChangeStats) {
+  // Rollback: need both min trades AND wall-clock since mode change
+  const sinceMode = state.modeSince ? (Date.now() - state.modeSince) : 0;
+  const enoughTime = sinceMode >= MIN_MS_POST_CHANGE;
+  const enoughTrades = state.tradesSinceChange >= MIN_TRADES_ROLLBACK;
+
+  if (enoughTrades && enoughTime && state.preChangeStats) {
     const fb = feedback.buildFeedbackContext(strategy);
     const prePf = state.preChangeStats.profitFactor || 1;
     const postPf = fb.profitFactor || 0;
 
-    if (postPf < prePf * 0.7 && fb.closedTrades >= 5) {
+    if (postPf < prePf * 0.7 && fb.closedTrades >= MIN_TRADES_ROLLBACK) {
+      // Auto-rollback mode to previous if we have it
+      const prevMode = state.preChangeStats.mode || 'trade';
+      if (prevMode !== state.currentMode && MODES[prevMode]) {
+        state.currentMode = prevMode;
+        if (prevMode === 'flat') strategy.active = false;
+        else strategy.active = true;
+        // restore risk knobs if snapshotted
+        if (state.preChangeStats.riskPerTradePercent != null) {
+          strategy.riskPerTradePercent = state.preChangeStats.riskPerTradePercent;
+        }
+        if (state.preChangeStats.maxPositionPercent != null) {
+          strategy.maxPositionPercent = state.preChangeStats.maxPositionPercent;
+        }
+        applyHardCaps(strategy);
+        Object.assign(strategy, sanitizeStrategy(strategy));
+      }
       const alert = {
-        type: 'rollback_alert',
-        message: `⚠️ Performance peggiorata dopo cambio a ${state.currentMode}: PF ${prePf} → ${postPf}, WR ${fb.rollingWinRate}%`,
+        type: 'rollback_applied',
+        message: `Performance peggiorata dopo cambio: PF ${prePf} → ${postPf} (n=${state.tradesSinceChange}, ${Math.round(sinceMode / 3600000)}h). Rollback → ${prevMode}`,
         previousMode: state.preChangeStats.mode,
         currentMode: state.currentMode,
         tradesSinceChange: state.tradesSinceChange,
@@ -301,9 +327,10 @@ function afterTrade(strategy) {
         maxPositionAtChange: state.preChangeStats.maxPositionPercent,
       };
       logChangelog(alert);
-      state.preChangeStats = null; // resetta per evitare alert ripetuti
+      state.preChangeStats = null;
+      state.tradesSinceChange = 0;
+      state.modeSince = Date.now();
     } else if (postPf >= prePf) {
-      // Sta funzionando: conferma il cambio
       state.preChangeStats = null;
     }
   }

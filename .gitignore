@@ -16,8 +16,10 @@ bear-state.json
 conversation-history.json
 auth.json
 
-# Logs / event streams
+# Logs / event streams / journals
 *.jsonl
+order-journal.jsonl
+strategy-patch-audit.jsonl
 a2a_audit.jsonl
 execution-fill.jsonl
 ai-signals.jsonl

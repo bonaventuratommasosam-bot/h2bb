@@ -11,8 +11,11 @@ const SIGNALS_FILE = path.join(DATA_DIR, 'shadow-signals.jsonl');
 const CHANGELOG_FILE = path.join(DATA_DIR, 'strategy-changelog.jsonl');
 
 // Sample minimo per promozione (riduce lucky noise). Override: SHADOW_TRADES_FOR_COMPARE
-const TRADES_FOR_COMPARE = parseInt(process.env.SHADOW_TRADES_FOR_COMPARE, 10) || 20;
-const PROMOTION_PF_MARGIN = parseFloat(process.env.SHADOW_PF_MARGIN) || 1.15;
+// Raised default 20→40; set SHADOW_AUTO_PROMOTE=0 to log-only
+const TRADES_FOR_COMPARE = parseInt(process.env.SHADOW_TRADES_FOR_COMPARE, 10) || 40;
+const PROMOTION_PF_MARGIN = parseFloat(process.env.SHADOW_PF_MARGIN) || 1.25;
+// Default OFF — set SHADOW_AUTO_PROMOTE=1 to allow live param promote
+const SHADOW_AUTO_PROMOTE = process.env.SHADOW_AUTO_PROMOTE === '1';
 const MIN_NOTIONAL_USD = parseFloat(process.env.MIN_NOTIONAL_USD) || 10;
 
 // Parametri testati in rotazione (1 alla volta)
@@ -439,6 +442,19 @@ function maybePromote(state, liveStrategy) {
   });
 
   if (challengerPF > championPF * PROMOTION_PF_MARGIN) {
+    if (!SHADOW_AUTO_PROMOTE) {
+      console.log(`[SHADOW] PAPER win ${testKey}: PF ${challengerPF.toFixed(2)} > ${championPF.toFixed(2)}×${PROMOTION_PF_MARGIN} — auto-promote OFF`);
+      appendJsonl(CHANGELOG_FILE, {
+        type: 'shadow_suggest_only',
+        at: new Date().toISOString(),
+        param: testKey,
+        challengerValue,
+        championPF,
+        challengerPF,
+      });
+      rotateTestParam(state);
+      return false;
+    }
     promoteParam(state, liveStrategy, testKey, challengerValue, championPF, challengerPF);
     return true;
   }
