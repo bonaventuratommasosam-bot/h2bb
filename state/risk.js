@@ -14,9 +14,11 @@ function saveRiskState(state) {
 }
 
 function getRiskBlocked() {
+  const rs = shared.riskState;
+  if (!rs) return false;
   return !!(
-    shared.riskState.circuitBreaker
-    || (shared.riskState.cooldownUntil && Date.now() < shared.riskState.cooldownUntil)
+    rs.circuitBreaker
+    || (rs.cooldownUntil && Date.now() < rs.cooldownUntil)
   );
 }
 

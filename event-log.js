@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const DATA_DIR = process.env.DATA_DIR || __dirname;
+const { DATA_DIR } = require('./config/default');
 const EVENT_LOG = path.join(DATA_DIR, 'events.jsonl');
 
 const EVENT_TYPES = {

@@ -4,6 +4,7 @@
 // =========================================================================
 
 const { PORT, DATA_DIR } = require('./config/default');
+const HOST = process.env.HOST || '127.0.0.1';
 const { loadState } = require('./state/strategy');
 const { loadRiskState } = require('./state/risk');
 const { loadWallet } = require('./state/wallet');
@@ -50,12 +51,14 @@ function _tickRunning_check() { return tickRunner.isTickRunning(); }
 // --- Express ---
 const app = createApp();
 
-app.listen(PORT, '127.0.0.1', () => {
+app.listen(PORT, HOST, () => {
+  const base = `http://${HOST}:${PORT}`;
   console.log(`\n╔══════════════════════════════════════════╗`);
-  console.log(`║  HermesBro Agent v4.5 — PROFILO HERMES  ║`);
-  console.log(`║  Server: http://127.0.0.1:${PORT}           `);
-  console.log(`║  Pair: ${shared.strategy.pair.padEnd(35)}║`);
-  console.log(`║  Mode: ${(shared.strategy.mode || 'autonomous').padEnd(34)}║`);
+  console.log(`║  H2BB / Hermes v4.6 — DASHBOARD         ║`);
+  console.log(`║  Server: ${base.padEnd(32)}║`);
+  console.log(`║  UI:     ${(base + '/').padEnd(32)}║`);
+  console.log(`║  Pair: ${String(shared.strategy.pair).padEnd(35)}║`);
+  console.log(`║  Mode: ${String(shared.strategy.mode || 'autonomous').padEnd(34)}║`);
   console.log(`║  Active: ${String(shared.strategy.active).padEnd(31)}║`);
   console.log(`╚══════════════════════════════════════════╝\n`);
 

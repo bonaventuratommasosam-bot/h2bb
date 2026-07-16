@@ -72,12 +72,37 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 Il meta-controller può solo muoversi **dentro** questi limiti.
 
-## API utili
+## Dashboard web
+
+Con il bot avviato apri:
 
 ```text
-GET /health   — engine, active, CB, lastDecision, uptime
-GET /status   — mercato, PnL, balance, lastDecision
+http://127.0.0.1:40001/
 ```
+
+(o `http://127.0.0.1:40001/dashboard`)
+
+Mostra in tempo reale (refresh 5s):
+
+- engine / LIVE·DEMO / uptime / heartbeat
+- prezzo, equity, PnL posizione, score
+- ultima decisione (reason code)
+- risk meters (giorno, drawdown, loss consecutive) + hard caps
+- performance (WR, PF, expectancy) + curva equity
+- trade recenti e event log
+
+API aggregate:
+
+```text
+GET /api/dashboard   — snapshot completo per la UI
+GET /api/trades      — trade (jsonl)
+GET /api/events      — eventi
+GET /api/performance — stats
+GET /health          — health check
+GET /status          — status classico
+```
+
+Bind: di default solo `127.0.0.1`. Per esporre in LAN: `HOST=0.0.0.0` (usa con cautela).
 
 ## Chat / Telegram (intent)
 

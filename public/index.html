@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>H2BB · Hermes Dashboard</title>
+  <link rel="stylesheet" href="/dashboard.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">⚡</span>
+      <div>
+        <h1>H2BB <span class="muted">/ Hermes</span></h1>
+        <p class="tagline">Hyperliquid · risk-first · autonomous</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div id="conn" class="pill pill-warn">connecting…</div>
+      <div id="mode-pill" class="pill">—</div>
+      <div id="clock" class="clock">—</div>
+      <button type="button" id="btn-refresh" class="btn" title="Aggiorna ora">↻</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Row: KPIs -->
+    <section class="kpis" id="kpis">
+      <article class="card kpi">
+        <span class="kpi-label">Engine</span>
+        <strong id="kpi-engine" class="kpi-value">—</strong>
+        <span id="kpi-engine-sub" class="kpi-sub">—</span>
+      </article>
+      <article class="card kpi">
+        <span class="kpi-label">Pair / Prezzo</span>
+        <strong id="kpi-price" class="kpi-value mono">—</strong>
+        <span id="kpi-pair-sub" class="kpi-sub">—</span>
+      </article>
+      <article class="card kpi">
+        <span class="kpi-label">Equity / USDC</span>
+        <strong id="kpi-equity" class="kpi-value mono">—</strong>
+        <span id="kpi-equity-sub" class="kpi-sub">—</span>
+      </article>
+      <article class="card kpi">
+        <span class="kpi-label">PnL non real.</span>
+        <strong id="kpi-pnl" class="kpi-value mono">—</strong>
+        <span id="kpi-pnl-sub" class="kpi-sub">posizione</span>
+      </article>
+      <article class="card kpi">
+        <span class="kpi-label">Score</span>
+        <strong id="kpi-score" class="kpi-value mono">—</strong>
+        <span id="kpi-score-sub" class="kpi-sub">soglia</span>
+      </article>
+      <article class="card kpi">
+        <span class="kpi-label">Uptime</span>
+        <strong id="kpi-uptime" class="kpi-value mono">—</strong>
+        <span id="kpi-uptime-sub" class="kpi-sub">heartbeat</span>
+      </article>
+    </section>
+
+    <div class="grid-2">
+      <!-- Decision -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Ultima decisione</h2>
+          <span id="decision-time" class="muted small">—</span>
+        </div>
+        <div id="decision-body" class="decision">
+          <div class="decision-code" id="decision-code">—</div>
+          <div class="decision-action" id="decision-action">—</div>
+          <p id="decision-reason" class="decision-reason">In attesa del primo tick…</p>
+        </div>
+      </section>
+
+      <!-- Risk -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Rischio</h2>
+          <span id="risk-badge" class="pill">—</span>
+        </div>
+        <div class="meters">
+          <div class="meter">
+            <div class="meter-label"><span>Giorno</span><span id="meter-day-val">—</span></div>
+            <div class="meter-track"><div id="meter-day" class="meter-fill"></div></div>
+          </div>
+          <div class="meter">
+            <div class="meter-label"><span>Drawdown</span><span id="meter-dd-val">—</span></div>
+            <div class="meter-track"><div id="meter-dd" class="meter-fill"></div></div>
+          </div>
+          <div class="meter">
+            <div class="meter-label"><span>Loss consecutive</span><span id="meter-loss-val">—</span></div>
+            <div class="meter-track"><div id="meter-loss" class="meter-fill"></div></div>
+          </div>
+        </div>
+        <pre id="risk-text" class="risk-text muted">—</pre>
+        <div class="caps-row" id="caps-row"></div>
+      </section>
+    </div>
+
+    <div class="grid-2">
+      <!-- Performance + curve -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Performance</h2>
+          <span id="perf-pair" class="muted small">—</span>
+        </div>
+        <div class="stats-grid" id="stats-grid">
+          <div class="stat"><span>Win rate</span><strong id="st-wr">—</strong></div>
+          <div class="stat"><span>P&L tot.</span><strong id="st-pnl">—</strong></div>
+          <div class="stat"><span>Profit factor</span><strong id="st-pf">—</strong></div>
+          <div class="stat"><span>Chiusi</span><strong id="st-closed">—</strong></div>
+          <div class="stat"><span>Expectancy</span><strong id="st-exp">—</strong></div>
+          <div class="stat"><span>Best / Worst</span><strong id="st-bw">—</strong></div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="equity-chart" width="600" height="160"></canvas>
+          <p id="chart-empty" class="muted small chart-empty">Nessun trade chiuso — curva equity vuota.</p>
+        </div>
+      </section>
+
+      <!-- Strategy -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Strategia</h2>
+          <span id="strat-mode" class="pill">—</span>
+        </div>
+        <dl class="kv" id="strategy-kv"></dl>
+        <div class="card-head sub">
+          <h3>Posizione</h3>
+        </div>
+        <dl class="kv" id="position-kv"></dl>
+      </section>
+    </div>
+
+    <div class="grid-2">
+      <!-- Trades -->
+      <section class="card table-card">
+        <div class="card-head">
+          <h2>Trade recenti</h2>
+          <span id="trades-count" class="muted small">—</span>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Quando</th>
+                <th>Tipo</th>
+                <th>Pair</th>
+                <th>Qty</th>
+                <th>Prezzo</th>
+                <th>PnL</th>
+              </tr>
+            </thead>
+            <tbody id="trades-body">
+              <tr><td colspan="6" class="muted">Nessun trade</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Events -->
+      <section class="card table-card">
+        <div class="card-head">
+          <h2>Event log</h2>
+          <span id="events-count" class="muted small">—</span>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Quando</th>
+                <th>Tipo</th>
+                <th>Dettaglio</th>
+              </tr>
+            </thead>
+            <tbody id="events-body">
+              <tr><td colspan="3" class="muted">Nessun evento</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <footer class="foot">
+      <span>Auto-refresh <strong id="refresh-sec">5</strong>s</span>
+      <span class="sep">·</span>
+      <span id="last-fetch">—</span>
+      <span class="sep">·</span>
+      <a href="/api/dashboard" target="_blank" rel="noopener">JSON API</a>
+      <span class="sep">·</span>
+      <a href="/health" target="_blank" rel="noopener">/health</a>
+    </footer>
+  </main>
+
+  <script src="/dashboard.js"></script>
+</body>
+</html>

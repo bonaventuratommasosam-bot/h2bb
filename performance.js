@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const DATA_DIR = process.env.DATA_DIR || __dirname;
+const { DATA_DIR } = require('./config/default');
 const TRADES_FILE = path.join(DATA_DIR, 'trades.jsonl');
 
 function loadTrades(limit = 500) {
