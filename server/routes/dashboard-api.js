@@ -91,30 +91,13 @@ router.get('/api/ping', (_req, res) => {
     pair: shared.strategy?.pair || null,
     active: !!shared.strategy?.active,
     dataMode: realData.dataMode(),
+    readOnly: true,
+    showcase: true,
   });
 });
 
-/** Collega address Hyperliquid in sola lettura (observe). */
-router.post('/api/wallet/connect', express.json(), (req, res) => {
-  try {
-    const { address } = req.body || {};
-    const result = realData.connectAddress(address);
-    if (!result.ok) return res.status(400).json(result);
-    res.json(result);
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-/** Snapshot mercato forzato. */
-router.post('/api/market/refresh', async (_req, res) => {
-  try {
-    const snap = await realData.refreshMarketSnapshot(true);
-    res.json({ ok: !!snap.ok, snapshot: snap });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
+// NOTA: POST connect / market refresh NON sono pubblici.
+// Config wallet e controlli restano sul server (localhost / systemd).
 
 router.get('/api/dashboard', async (req, res) => {
   try {
@@ -219,6 +202,8 @@ router.get('/api/dashboard', async (req, res) => {
     res.json({
       ok: true,
       ts: new Date().toISOString(),
+      readOnly: true,
+      showcase: true,
       dataMode,
       sources: {
         price: priceSource,
@@ -283,7 +268,10 @@ router.get('/api/dashboard', async (req, res) => {
       hlTruth: realData.hasValidAddress()
         ? {
             note: 'Valori grezzi API Hyperliquid (info clearinghouse + spot + allMids)',
-            address: wallet?.address || null,
+            // mai address completo in vetrina pubblica
+            addressShort: wallet?.address && realData.hasValidAddress(wallet)
+              ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`
+              : null,
             midPrice: price,
             perpsAccountValue: shared.balance?.accountValuePerp ?? null,
             spotUsdcTotal: shared.balance?.usdcSpot ?? null,
@@ -314,20 +302,14 @@ router.get('/api/dashboard', async (req, res) => {
         ? {
             mode: wallet.mode || 'demo',
             dataMode,
-            address: wallet.address && realData.hasValidAddress(wallet)
-              ? wallet.address
-              : null,
+            // solo short — vetrina pubblica
             addressShort: wallet.address && realData.hasValidAddress(wallet)
               ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`
               : null,
             live: isLiveMode(),
             observe: dataMode === 'observe',
-            needsAddress: !realData.hasValidAddress(wallet),
           }
-        : { needsAddress: true, dataMode: 'demo' },
-      connectHint: realData.hasValidAddress()
-        ? null
-        : 'Inserisci il tuo address Hyperliquid (0x…) per vedere saldo e posizioni reali in sola lettura.',
+        : { dataMode: 'demo' },
       defaults: {
         minConfidenceScore: DEFAULT_STRATEGY.minConfidenceScore,
       },

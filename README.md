@@ -84,7 +84,11 @@ Poi apri nel browser (usa **127.0.0.1**, non aprire il file HTML da disco):
 http://127.0.0.1:40001/
 ```
 
-**Minimondo Hermes:** cielo = regime/rischio, faro = engine, nave = posizione, isole = watchlist, bolla = decisione. Pannello laterale con dati HL e controlli.
+**Minimondo Hermes (vetrina pubblica):** sola lettura. Cielo/faro/navi = stato bot; pannello = equity, posizioni, trade.  
+**Nessun controllo** da browser: `/resume`, `/pause`, `/wallet/*`, `/chat` accettati **solo da localhost**.
+
+Per esporre la vetrina in rete: `HOST=0.0.0.0` (meglio dietro nginx/Caddy con HTTPS).  
+Controlli bot restano su VPS via SSH/systemd, non dalla UI.
 
 Se vedi **OFFLINE** / banner rosso:
 

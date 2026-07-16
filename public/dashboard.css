@@ -215,6 +215,14 @@ body.world-body {
 }
 
 .hero-card { padding: 0.95rem 1rem; }
+.showcase-banner {
+  margin: 0 0 0.75rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 10px;
+  background: rgba(45, 212, 191, 0.08);
+  border: 1px solid rgba(45, 212, 191, 0.22);
+  line-height: 1.35;
+}
 .hero-metrics {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

@@ -57,16 +57,16 @@ function onServerReady(boundHost) {
     : (boundHost === '::1' ? 'localhost' : boundHost);
   const base = `http://${displayHost}:${PORT}`;
   console.log(`\n╔══════════════════════════════════════════╗`);
-  console.log(`║  H2BB / Hermes v4.6 — DASHBOARD         ║`);
+  console.log(`║  H2BB / Hermes — VETRINA (read-only)   ║`);
   console.log(`║  Server: ${base.padEnd(32)}║`);
   console.log(`║  UI:     ${(base + '/').padEnd(32)}║`);
   console.log(`║  Pair: ${String(shared.strategy.pair).padEnd(35)}║`);
   console.log(`║  Mode: ${String(shared.strategy.mode || 'autonomous').padEnd(34)}║`);
   console.log(`║  Active: ${String(shared.strategy.active).padEnd(31)}║`);
   console.log(`╚══════════════════════════════════════════╝\n`);
-  console.log(`  → Dashboard: ${base}/`);
-  console.log(`  → Health:    ${base}/health`);
-  console.log(`  → API:       ${base}/api/dashboard\n`);
+  console.log(`  → Vetrina:   ${base}/  (sola lettura pubblica)`);
+  console.log(`  → API:       ${base}/api/dashboard`);
+  console.log(`  → Controlli: solo localhost (/resume /pause /chat /wallet)\n`);
 
   hermesProfile.ensureProfile(DATA_DIR, {
     agentName: `client-trade-${process.env.ORDER_ID || '1'}`,

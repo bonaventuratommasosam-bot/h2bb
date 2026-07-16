@@ -1,4 +1,4 @@
-/* H2BB Minimondo — data layer + panel; world drawn by world-engine.js */
+/* H2BB Minimondo — VETRINA pubblica (sola lettura, zero controlli) */
 (() => {
   const REFRESH_MS = 5000;
   let timer = null;
@@ -98,7 +98,7 @@
       $('thought-reason').textContent = (dec.reason || '') + sc;
     } else {
       $('thought-code').textContent = 'listening';
-      $('thought-action').textContent = eng.active ? 'traccio la rotta…' : 'faro spento';
+      $('thought-action').textContent = eng.active ? 'traccio la rotta…' : 'in osservazione';
       $('thought-reason').textContent = (mkt.signals || []).slice(0, 2).join(' · ') || 'dati Hyperliquid in arrivo';
     }
   }
@@ -118,30 +118,19 @@
     }).join('');
   }
 
-  function renderConnect(data) {
+  function renderMeta(data) {
     const mode = data.dataMode || data.engine?.mode || 'demo';
     if (mode === 'live') setPill($('mode-pill'), 'LIVE', 'pill-live');
     else if (mode === 'observe') setPill($('mode-pill'), 'OBSERVE', 'pill-observe');
-    else setPill($('mode-pill'), 'NO WALLET', 'pill-warn');
+    else setPill($('mode-pill'), 'DEMO', 'pill-demo');
 
-    const help = $('connect-help');
-    if (help) {
-      help.textContent = data.connectHint
-        || (mode === 'observe' || mode === 'live'
-          ? 'Mondo su API Hyperliquid. Faro = trading engine.'
-          : 'Collega 0x… per tesoro e flotta reali.');
-    }
     const status = $('connect-status');
     if (status) {
-      if (data.wallet?.addressShort || data.wallet?.address) {
-        status.innerHTML = `Isola: <code>${data.wallet.addressShort || data.wallet.address}</code> · ${data.balance?.source || '—'}`;
+      if (data.wallet?.addressShort) {
+        status.innerHTML = `Wallet in vetrina: <code>${data.wallet.addressShort}</code> · ${data.balance?.source || 'HL'}`;
       } else {
-        status.textContent = 'Nessun address — portfolio nascosto.';
+        status.textContent = 'Vetrina live del bot Hermes su Hyperliquid.';
       }
-    }
-    const input = $('wallet-address');
-    if (input && data.wallet?.address?.length === 42 && !input.dataset.touched) {
-      input.value = data.wallet.address;
     }
     renderSources(data);
   }
@@ -180,7 +169,7 @@
       const hl = data.hlTruth;
       line.innerHTML = hl
         ? `HL · mid <code>$${fmtNum(hl.midPrice)}</code> · perp <code>$${fmtNum(hl.perpsAccountValue)}</code> · spot <code>$${fmtNum(hl.spotUsdcAvailable)}</code>`
-        : (data.connectHint || '');
+        : 'Dati di mercato Hyperliquid in tempo reale.';
     }
   }
 
@@ -333,11 +322,11 @@
   }
 
   function render(data) {
-    setPill($('conn'), 'online', 'pill-ok');
+    setPill($('conn'), 'live', 'pill-ok');
     lastOk = true;
     pushWorld(data);
     renderThought(data);
-    renderConnect(data);
+    renderMeta(data);
     renderHero(data);
     renderWorldKv(data);
     renderWatchlist(data.watchlist);
@@ -352,22 +341,18 @@
   function renderError(err) {
     setPill($('conn'), 'offline', 'pill-bad');
     lastOk = false;
-    const port = location.port || '40001';
     showBanner(
-      `<strong>Minimondo offline</strong> — ${err || 'API non raggiungibile'}<br/>
-       <code>npm start</code> · <code>http://127.0.0.1:${port}/</code>`,
+      `<strong>Vetrina offline</strong> — ${err || 'API non raggiungibile'}`,
       'bad'
     );
-    $('thought-action').textContent = 'nebbia…';
-    $('thought-reason').textContent = err || 'server assente';
-    if (world) {
-      world.setState({ active: false, blocked: false, operational: false, mood: 'paused' });
-    }
+    if ($('thought-action')) $('thought-action').textContent = 'nebbia…';
+    if ($('thought-reason')) $('thought-reason').textContent = err || 'server assente';
+    if (world) world.setState({ active: false, blocked: false, operational: false });
   }
 
   async function fetchDashboard() {
     if (location.protocol === 'file:') {
-      renderError('pagina aperta come file://');
+      renderError('apri via HTTP del bot, non file://');
       return;
     }
     try {
@@ -385,65 +370,6 @@
     }
   }
 
-  async function connectWallet(ev) {
-    ev.preventDefault();
-    const input = $('wallet-address');
-    const status = $('connect-status');
-    const address = (input?.value || '').trim();
-    if (!address) { status.textContent = 'Inserisci un address 0x…'; return; }
-    status.textContent = 'Ancoro l’isola…';
-    try {
-      const res = await fetch('/api/wallet/connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address }),
-      });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || 'connect failed');
-      status.innerHTML = `Isola ok: <code>${data.address.slice(0, 6)}…${data.address.slice(-4)}</code>`;
-      await fetchDashboard();
-    } catch (e) {
-      status.textContent = `Errore: ${e.message}`;
-    }
-  }
-
-  async function refreshMarket() {
-    const status = $('connect-status');
-    status.textContent = 'Aggiorno mare…';
-    try {
-      await fetch('/api/market/refresh', { method: 'POST' });
-      await fetchDashboard();
-      status.textContent = 'Mare aggiornato.';
-    } catch (e) {
-      status.textContent = `Refresh fallito: ${e.message}`;
-    }
-  }
-
-  async function setEngineActive(active) {
-    const status = $('connect-status');
-    if (active) {
-      const ok = window.confirm(
-        'Accendere il faro (trading automatico)?\n\n' +
-        '• DEMO/OBSERVE → paper\n• LIVE → ordini reali Hyperliquid'
-      );
-      if (!ok) return;
-    }
-    status.textContent = active ? 'Accendo il faro…' : 'Spengo il faro…';
-    try {
-      const res = await fetch(active ? '/resume' : '/pause', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || 'comando fallito');
-      status.textContent = active ? 'Faro acceso.' : 'Faro spento.';
-      await fetchDashboard();
-    } catch (e) {
-      status.textContent = `Errore: ${e.message}`;
-    }
-  }
-
   function tickClock() {
     const el = $('clock');
     if (el) el.textContent = new Date().toLocaleTimeString('it-IT');
@@ -454,14 +380,6 @@
     if (canvas && window.H2BBMiniWorld) {
       world = new window.H2BBMiniWorld(canvas);
     }
-
-    $('btn-refresh')?.addEventListener('click', () => fetchDashboard());
-    $('connect-form')?.addEventListener('submit', connectWallet);
-    $('wallet-address')?.addEventListener('input', (e) => { e.target.dataset.touched = '1'; });
-    $('btn-refresh-market')?.addEventListener('click', refreshMarket);
-    $('btn-resume')?.addEventListener('click', () => setEngineActive(true));
-    $('btn-pause')?.addEventListener('click', () => setEngineActive(false));
-
     tickClock();
     setInterval(tickClock, 1000);
     fetchDashboard();

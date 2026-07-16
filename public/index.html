@@ -36,18 +36,21 @@
         </div>
         <div>
           <h1>Minimondo <span class="muted">Hermes</span></h1>
-          <p class="tagline">Hyperliquid · cinematic world · live data</p>
+          <p class="tagline">Vetrina live · sola lettura · Hyperliquid</p>
         </div>
       </div>
       <div class="panel-pills">
         <span id="conn" class="pill pill-warn">…</span>
         <span id="mode-pill" class="pill">—</span>
+        <span id="showcase-pill" class="pill pill-observe">VETRINA</span>
         <span id="clock" class="clock">—</span>
-        <button type="button" id="btn-refresh" class="btn" title="Aggiorna">↻</button>
       </div>
     </header>
 
     <section class="panel-card hero-card">
+      <p class="showcase-banner muted small" id="showcase-banner">
+        Solo visualizzazione — nessun controllo sul bot da questa pagina.
+      </p>
       <div class="hero-metrics">
         <div>
           <span class="hm-k">Equity</span>
@@ -62,25 +65,10 @@
           <strong class="hm-v mono" id="panel-upnl">—</strong>
         </div>
       </div>
-    </section>
-
-    <section class="panel-card">
-      <h2>Collegamento</h2>
-      <p class="muted small" id="connect-help">Collega address 0x… per equity e posizioni HL.</p>
-      <form id="connect-form" class="connect-form" autocomplete="off">
-        <input type="text" id="wallet-address" placeholder="0x… address Hyperliquid" spellcheck="false" maxlength="42" />
-        <div class="btn-row">
-          <button type="submit" class="btn-primary">Collega</button>
-          <button type="button" id="btn-refresh-market" class="btn-secondary">Mercato</button>
-        </div>
-        <div class="btn-row">
-          <button type="button" id="btn-resume" class="btn-primary">▶ Accendi faro</button>
-          <button type="button" id="btn-pause" class="btn-secondary">⏸ Spegni faro</button>
-        </div>
-      </form>
-      <p id="connect-status" class="connect-status muted small"></p>
       <div class="sources-row" id="sources-row"></div>
+      <p id="connect-status" class="connect-status muted small"></p>
       <span id="data-mode-pill" class="pill" hidden>—</span>
+      <span id="connect-help" hidden></span>
     </section>
 
     <section class="panel-card">
