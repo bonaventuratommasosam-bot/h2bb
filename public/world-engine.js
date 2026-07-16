@@ -103,7 +103,9 @@
       this.foam = [];
       this.rain = [];
       this.hermesImg = null;
+      this.hermesPfp = null;
       this.hermesReady = false;
+      this.hermesPfpReady = false;
       this._flash = 0;
       this._loadHermes();
       this._resize();
@@ -115,13 +117,20 @@
     }
 
     _loadHermes() {
-      const img = new Image();
-      img.decoding = 'async';
-      // hint browser to decode at full res
-      try { img.loading = 'eager'; } catch { /* ignore */ }
-      img.onload = () => { this.hermesImg = img; this.hermesReady = true; };
-      img.onerror = () => { this.hermesReady = false; };
-      img.src = '/assets/hermes.jpg?v=3';
+      const full = new Image();
+      full.decoding = 'async';
+      try { full.loading = 'eager'; } catch { /* ignore */ }
+      full.onload = () => { this.hermesImg = full; this.hermesReady = true; };
+      full.onerror = () => { this.hermesReady = false; };
+      full.src = '/assets/hermes.jpg?v=3';
+
+      // Premium circular headshot PFP
+      const pfp = new Image();
+      pfp.decoding = 'async';
+      try { pfp.loading = 'eager'; } catch { /* ignore */ }
+      pfp.onload = () => { this.hermesPfp = pfp; this.hermesPfpReady = true; };
+      pfp.onerror = () => { this.hermesPfpReady = false; };
+      pfp.src = '/assets/hermes-pfp.jpg?v=1';
     }
 
     _applyCtxQuality(ctx) {
