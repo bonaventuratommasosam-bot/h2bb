@@ -84,6 +84,8 @@ Poi apri nel browser (usa **127.0.0.1**, non aprire il file HTML da disco):
 http://127.0.0.1:40001/
 ```
 
+**Minimondo Hermes:** cielo = regime/rischio, faro = engine, nave = posizione, isole = watchlist, bolla = decisione. Pannello laterale con dati HL e controlli.
+
 Se vedi **OFFLINE** / banner rosso:
 
 1. Il bot non è avviato → `npm start` nella cartella `h2bb`
