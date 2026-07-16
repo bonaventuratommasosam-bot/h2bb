@@ -58,14 +58,16 @@ body.world-body {
   min-height: 100dvh;
   overflow: hidden;
   background: #04070c;
+  display: flex;
+  flex-direction: column;
 }
 @media (max-width: 960px) {
   .app { flex-direction: column; }
-  .stage { min-height: 48vh; }
+  .stage { min-height: 58vh; }
   :root { --panel-w: 100%; }
 }
 
-/* video backdrop */
+/* video backdrop — dimmed behind chart */
 .bg-video {
   position: absolute;
   inset: 0;
@@ -73,12 +75,14 @@ body.world-body {
   height: 100%;
   object-fit: cover;
   z-index: 0;
-  filter: saturate(0.75) contrast(1.08) brightness(0.48);
+  filter: saturate(0.55) contrast(1.05) brightness(0.28);
+  opacity: 0.35;
   transition: opacity 1.1s ease, filter 0.9s ease;
+  pointer-events: none;
 }
 .bg-video.dimmed {
-  opacity: 0.18;
-  filter: brightness(0.28) saturate(0.4);
+  opacity: 0.12;
+  filter: brightness(0.2) saturate(0.35);
 }
 .bg-video-b {
   opacity: 0;
@@ -86,8 +90,8 @@ body.world-body {
   pointer-events: none;
 }
 .bg-video-b.visible {
-  opacity: 0.7;
-  filter: saturate(0.8) contrast(1.05) brightness(0.45);
+  opacity: 0.25;
+  filter: saturate(0.7) contrast(1.05) brightness(0.35);
 }
 .bg-scrim {
   position: absolute;
@@ -95,8 +99,7 @@ body.world-body {
   z-index: 2;
   pointer-events: none;
   background:
-    linear-gradient(180deg, rgba(4, 7, 12, 0.72) 0%, transparent 26%, transparent 68%, rgba(4, 7, 12, 0.82) 100%),
-    linear-gradient(90deg, rgba(4, 7, 12, 0.55) 0%, transparent 42%, rgba(4, 7, 12, 0.4) 100%);
+    linear-gradient(180deg, rgba(4, 7, 12, 0.92) 0%, rgba(4, 7, 12, 0.75) 18%, rgba(4, 7, 12, 0.88) 100%);
 }
 #world-canvas {
   position: absolute;
@@ -105,19 +108,20 @@ body.world-body {
   height: 100%;
   z-index: 3;
   pointer-events: none;
+  opacity: 0.55;
 }
 
 /* stage chrome */
 .stage-top {
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  z-index: 5;
+  position: relative;
+  z-index: 6;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1.1rem 1.35rem;
-  background: linear-gradient(180deg, rgba(4, 7, 12, 0.85), transparent);
+  padding: 0.85rem 1.1rem 0.55rem;
+  background: transparent;
 }
 .stage-brand {
   display: flex;
@@ -171,19 +175,130 @@ body.world-body {
   font-variant-numeric: tabular-nums;
 }
 
-/* quote card */
-.quote-card {
-  position: absolute;
-  left: 1.35rem;
-  bottom: 3.1rem;
-  z-index: 5;
-  padding: 1.15rem 1.3rem 1.2rem;
-  min-width: min(340px, calc(100% - 2.7rem));
-  background: rgba(10, 14, 22, 0.82);
+/* ===== TradingView shell ===== */
+.tv-shell {
+  position: relative;
+  z-index: 4;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0 0.75rem 0.35rem;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-lg);
-  backdrop-filter: blur(20px) saturate(1.2);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  overflow: hidden;
+  background: #0a0e16;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+.tv-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.4rem 0.65rem;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+}
+.tv-bar-label {
+  font-size: 0.6rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tv-bar-src {
+  font-size: 0.62rem;
+  color: var(--faint);
+  margin-right: auto;
+}
+.tv-bar-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+.tv-btn {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 0.22rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.tv-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.tv-btn.is-active {
+  color: var(--accent);
+  border-color: rgba(47, 212, 138, 0.35);
+  background: var(--accent-dim);
+}
+.tv-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 320px;
+  background: #0a0e16;
+}
+#tv-chart {
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+}
+/* TradingView injects iframe */
+#tv-chart iframe {
+  width: 100% !important;
+  height: 100% !important;
+}
+.tv-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 1.5rem;
+  text-align: center;
+  background: #0a0e16;
+  color: var(--muted);
+  font-size: 0.85rem;
+  z-index: 2;
+}
+.tv-fallback a {
+  color: var(--blue);
+  margin-top: 0.5rem;
+}
+.tv-fallback[hidden] { display: none !important; }
+
+.stage-overlays {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.stage-overlays .quote-card,
+.stage-overlays .signal-card {
+  pointer-events: auto;
+}
+
+/* quote card — compact overlay bottom-left of chart */
+.quote-card {
+  position: absolute;
+  left: 1.1rem;
+  bottom: 2.85rem;
+  z-index: 5;
+  padding: 0.75rem 0.9rem 0.8rem;
+  min-width: min(260px, calc(100% - 2.2rem));
+  max-width: min(300px, 42vw);
+  background: rgba(10, 14, 22, 0.88);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
   box-shadow: var(--shadow);
 }
 .quote-head {
@@ -213,10 +328,10 @@ body.world-body {
 }
 .quote-price {
   font-family: var(--mono);
-  font-size: clamp(1.9rem, 4.2vw, 2.55rem);
+  font-size: clamp(1.35rem, 2.8vw, 1.75rem);
   font-weight: 600;
-  letter-spacing: -0.035em;
-  margin: 0.15rem 0 0.45rem;
+  letter-spacing: -0.03em;
+  margin: 0.1rem 0 0.3rem;
   color: #f4f7fc;
   font-variant-numeric: tabular-nums;
   transition: color 0.25s ease;
@@ -237,15 +352,15 @@ body.world-body {
 .quote-meta .good { color: var(--good); }
 .quote-meta .bad { color: var(--bad); }
 
-/* signal card */
+/* signal card — compact top-right */
 .signal-card {
   position: absolute;
-  top: 4.75rem;
-  right: 1.35rem;
+  top: 4.35rem;
+  right: 1.1rem;
   z-index: 5;
-  width: min(300px, calc(100% - 2.7rem));
-  padding: 0.95rem 1.05rem;
-  background: rgba(10, 14, 22, 0.84);
+  width: min(260px, calc(100% - 2.2rem));
+  padding: 0.7rem 0.8rem;
+  background: rgba(10, 14, 22, 0.9);
   border: 1px solid var(--border-strong);
   border-left: 2px solid var(--blue);
   border-radius: var(--r-lg);
@@ -285,19 +400,35 @@ body.world-body {
 
 /* ticker */
 .stage-ticker {
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  z-index: 5;
-  padding: 0.48rem 1.35rem;
-  font-size: 0.68rem;
+  position: relative;
+  z-index: 6;
+  flex-shrink: 0;
+  padding: 0.42rem 1.1rem;
+  font-size: 0.66rem;
   color: var(--muted);
-  background: rgba(6, 9, 15, 0.92);
+  background: rgba(6, 9, 15, 0.95);
   border-top: 1px solid var(--border);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 960px) {
+  .stage-overlays .signal-card {
+    top: auto;
+    bottom: 2.85rem;
+    right: 0.75rem;
+    left: auto;
+    width: min(220px, 46vw);
+  }
+  .stage-overlays .quote-card {
+    left: 0.75rem;
+    max-width: min(200px, 46vw);
+  }
+  .tv-wrap { min-height: 280px; }
+  #tv-chart { min-height: 280px; }
 }
 
 /* pills */

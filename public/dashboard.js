@@ -7,7 +7,174 @@
   /** @type {{ pad: object, t0: number, t1: number, min: number, max: number, w: number, h: number, cssW: number, cssH: number, markers: Array } | null} */
   let tradeChartGeom = null;
 
+  /** TradingView widget state */
+  let tvWidget = null;
+  let tvSymbolCurrent = null;
+  let tvInterval = '15';
+  let tvReady = false;
+  let tvLoadPromise = null;
+
   const $ = (id) => document.getElementById(id);
+
+  /** Map bot pair → TradingView symbol (Hyperliquid venue preferred). */
+  function pairToTvSymbol(pair) {
+    const p = String(pair || 'ETH')
+      .toUpperCase()
+      .replace(/-PERP|\/|USDC|USDT|USD/g, '')
+      .replace(/[^A-Z0-9]/g, '');
+    // Hyperliquid perps on TradingView use PAIRUSD
+    const hl = {
+      ETH: 'HYPERLIQUID:ETHUSD',
+      BTC: 'HYPERLIQUID:BTCUSD',
+      SOL: 'HYPERLIQUID:SOLUSD',
+      ARB: 'HYPERLIQUID:ARBUSD',
+      DOGE: 'HYPERLIQUID:DOGEUSD',
+      AVAX: 'HYPERLIQUID:AVAXUSD',
+      LINK: 'HYPERLIQUID:LINKUSD',
+      OP: 'HYPERLIQUID:OPUSD',
+      HYPE: 'HYPERLIQUID:HYPEUSD',
+      SUI: 'HYPERLIQUID:SUIUSD',
+      TIA: 'HYPERLIQUID:TIAUSD',
+      WIF: 'HYPERLIQUID:WIFUSD',
+      PEPE: 'HYPERLIQUID:PEPEUSD',
+      SEI: 'HYPERLIQUID:SEIUSD',
+      NEAR: 'HYPERLIQUID:NEARUSD',
+    };
+    if (hl[p]) return hl[p];
+    // liquid fallback
+    return `BINANCE:${p}USDT`;
+  }
+
+  function loadTvScript() {
+    if (window.TradingView) return Promise.resolve();
+    if (tvLoadPromise) return tvLoadPromise;
+    tvLoadPromise = new Promise((resolve, reject) => {
+      const existing = document.querySelector('script[src*="tradingview.com/tv.js"]');
+      if (existing && window.TradingView) {
+        resolve();
+        return;
+      }
+      const s = document.createElement('script');
+      s.src = 'https://s3.tradingview.com/tv.js';
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('TradingView script failed'));
+      document.head.appendChild(s);
+      // if already in HTML, wait a bit
+      let n = 0;
+      const poll = setInterval(() => {
+        if (window.TradingView) {
+          clearInterval(poll);
+          resolve();
+        } else if (++n > 80) {
+          clearInterval(poll);
+          if (!window.TradingView) reject(new Error('TradingView timeout'));
+        }
+      }, 50);
+    });
+    return tvLoadPromise;
+  }
+
+  function setTvMeta(symbol) {
+    if ($('tv-symbol-pill')) $('tv-symbol-pill').textContent = symbol || '—';
+    if ($('tv-bar-src')) $('tv-bar-src').textContent = symbol ? `TradingView · ${symbol}` : 'TradingView';
+    const link = $('tv-fallback-link');
+    if (link && symbol) {
+      link.href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(symbol)}`;
+    }
+  }
+
+  function showTvFallback(show) {
+    const el = $('tv-fallback');
+    if (el) el.hidden = !show;
+  }
+
+  function mountTradingView(symbol, interval) {
+    const container = $('tv-chart');
+    if (!container) return;
+    if (!window.TradingView || typeof window.TradingView.widget !== 'function') {
+      showTvFallback(true);
+      return;
+    }
+
+    const sym = symbol || tvSymbolCurrent || 'HYPERLIQUID:ETHUSD';
+    const iv = interval || tvInterval || '15';
+    tvSymbolCurrent = sym;
+    tvInterval = iv;
+    setTvMeta(sym);
+    showTvFallback(false);
+
+    // recreate container (TV widget owns the node)
+    container.innerHTML = '';
+    const id = 'tv-chart-host';
+    const host = document.createElement('div');
+    host.id = id;
+    host.style.width = '100%';
+    host.style.height = '100%';
+    host.style.minHeight = '320px';
+    container.appendChild(host);
+
+    try {
+      // Free Advanced Chart widget options only (not Charting Library)
+      tvWidget = new window.TradingView.widget({
+        autosize: true,
+        symbol: sym,
+        interval: iv,
+        timezone: 'Etc/UTC',
+        theme: 'dark',
+        style: '1',
+        locale: 'en',
+        toolbar_bg: '#0a0e16',
+        enable_publishing: false,
+        hide_top_toolbar: false,
+        hide_legend: false,
+        hide_side_toolbar: false,
+        allow_symbol_change: true,
+        save_image: false,
+        withdateranges: true,
+        details: false,
+        hotlist: false,
+        calendar: false,
+        studies: ['MASimple@tv-basicstudies'],
+        container_id: id,
+      });
+      tvReady = true;
+    } catch (e) {
+      console.error('[TV]', e);
+      showTvFallback(true);
+    }
+  }
+
+  async function ensureTradingView(pair) {
+    const symbol = pairToTvSymbol(pair);
+    try {
+      await loadTvScript();
+    } catch (e) {
+      console.error('[TV] load', e);
+      setTvMeta(symbol);
+      showTvFallback(true);
+      return;
+    }
+    // only remount if symbol changed (avoid destroy on every poll)
+    if (tvReady && tvSymbolCurrent === symbol) {
+      setTvMeta(symbol);
+      return;
+    }
+    mountTradingView(symbol, tvInterval);
+  }
+
+  function bindTvTimeframes() {
+    document.querySelectorAll('.tv-btn[data-tv-tf]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const tf = btn.getAttribute('data-tv-tf');
+        if (!tf) return;
+        document.querySelectorAll('.tv-btn[data-tv-tf]').forEach((b) => b.classList.remove('is-active'));
+        btn.classList.add('is-active');
+        tvInterval = tf;
+        if (tvSymbolCurrent) mountTradingView(tvSymbolCurrent, tvInterval);
+      });
+    });
+  }
 
   function showBanner(html) {
     const el = $('error-banner');
@@ -708,6 +875,9 @@
     renderTrades(data.trades);
     renderEquity(data.equityCurve || []);
     renderStats(data.performance);
+    // Live TradingView follows bot pair
+    const pair = data.market?.pair || data.engine?.pair || 'ETH';
+    ensureTradingView(pair);
     if ($('last-fetch')) $('last-fetch').textContent = fmtTime(data.ts || Date.now());
     if ($('refresh-sec')) $('refresh-sec').textContent = String(REFRESH_MS / 1000);
   }
@@ -762,13 +932,13 @@
       tradeCanvas.addEventListener('mousemove', onTradeChartMove);
       tradeCanvas.addEventListener('mouseleave', onTradeChartLeave);
     }
+    bindTvTimeframes();
+    // mount TV immediately with ETH, then pair sync from API
+    ensureTradingView('ETH');
     tickClock();
     setInterval(tickClock, 1000);
     fetchDashboard();
     setInterval(fetchDashboard, REFRESH_MS);
-    window.addEventListener('resize', () => {
-      // redraw last chart on resize if geom exists — next poll will refresh
-    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
