@@ -66,21 +66,40 @@
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
   /* ----- Waves ----- */
-  function setWave(id, amp, phase, yBase) {
+  function setWave(id, amp, phase, yBase, h = 280) {
     const el = document.getElementById(id);
     if (!el) return;
-    const pts = [];
-    for (let x = 0; x <= 1200; x += 40) {
-      const y = yBase + Math.sin((x / 1200) * Math.PI * 4 + phase) * amp;
-      pts.push(`${x},${y}`);
+    let d = `M0,${h} L0,${yBase}`;
+    for (let x = 0; x <= 1200; x += 30) {
+      const y = yBase
+        + Math.sin((x / 1200) * Math.PI * 3.5 + phase) * amp
+        + Math.sin((x / 1200) * Math.PI * 7 + phase * 1.3) * (amp * 0.25);
+      d += ` L${x},${y.toFixed(2)}`;
     }
-    el.setAttribute('d', `M0,220 L0,${yBase} ` + pts.map((p, i) => (i === 0 ? `L${p}` : `L${p}`)).join(' ') + ' L1200,220 Z');
+    d += ` L1200,${h} Z`;
+    el.setAttribute('d', d);
   }
   function animateWaves() {
-    waveT += 0.04;
-    setWave('wave1', 10, waveT, 40);
-    setWave('wave2', 7, waveT * 0.7 + 1, 55);
+    waveT += 0.035;
+    setWave('wave3', 14, waveT * 0.55, 48);
+    setWave('wave1', 11, waveT, 58);
+    setWave('wave2', 8, waveT * 1.15 + 1.2, 72);
     requestAnimationFrame(animateWaves);
+  }
+
+  function initSparkles() {
+    const root = $('sparkles');
+    if (!root || root.dataset.ready) return;
+    root.dataset.ready = '1';
+    for (let i = 0; i < 14; i++) {
+      const s = document.createElement('span');
+      s.className = 'spark';
+      s.style.left = `${8 + Math.random() * 84}%`;
+      s.style.top = `${10 + Math.random() * 55}%`;
+      s.style.animationDelay = `${Math.random() * 3.5}s`;
+      s.style.animationDuration = `${2.5 + Math.random() * 2}s`;
+      root.appendChild(s);
+    }
   }
 
   /* ----- World mood ----- */
@@ -89,10 +108,10 @@
     const eng = data.engine || {};
     const mkt = data.market || {};
     const risk = data.risk || {};
-    const light = $('tower-light');
     const beam = $('tower-beam');
     const storm = $('storm');
     const ship = $('ship');
+    const island = $('island-main');
 
     sky.className = 'sky';
     if (!eng.active) sky.classList.add('paused');
@@ -103,16 +122,15 @@
       sky.classList.add('bear');
     }
 
-    // Beacon = engine
-    light.className = 'tower-light';
-    beam.className = 'tower-beam';
-    if (!eng.active) {
-      /* off */
-    } else if (eng.circuitBreaker || eng.riskBlocked) {
-      light.classList.add('blocked');
-    } else {
-      light.classList.add('on');
-      beam.classList.add('on');
+    // Beacon = engine (SVG lamp on island)
+    if (island) {
+      island.classList.remove('lamp-on', 'lamp-off', 'lamp-blocked');
+      if (!eng.active) island.classList.add('lamp-off');
+      else if (eng.circuitBreaker || eng.riskBlocked) island.classList.add('lamp-blocked');
+      else island.classList.add('lamp-on');
+    }
+    if (beam) {
+      beam.className = 'tower-beam' + (eng.active && !eng.circuitBreaker && !eng.riskBlocked ? ' on' : '');
     }
 
     // Storm cloud on risk
@@ -185,13 +203,23 @@
     const root = $('archipelago');
     if (!root) return;
     const list = (watchlist || []).filter((w) => w.pair && String(w.pair).toUpperCase() !== String(mainPair || '').toUpperCase());
-    root.innerHTML = list.slice(0, 4).map((w, i) => `
+    const hues = ['#22c55e', '#14b8a6', '#38bdf8', '#a78bfa'];
+    root.innerHTML = list.slice(0, 4).map((w, i) => {
+      const h = hues[i % hues.length];
+      return `
       <div class="sat-island i${i}" title="${w.pair}">
-        <div class="blob"></div>
+        <svg class="isle-art" viewBox="0 0 88 56" aria-hidden="true">
+          <ellipse cx="44" cy="48" rx="36" ry="6" fill="#000" opacity="0.25"/>
+          <ellipse cx="44" cy="40" rx="34" ry="10" fill="#78350f"/>
+          <ellipse cx="44" cy="34" rx="28" ry="10" fill="${h}"/>
+          <ellipse cx="44" cy="30" rx="20" ry="6" fill="#fff" opacity="0.12"/>
+          <circle cx="30" cy="28" r="4" fill="#15803d"/>
+          <circle cx="56" cy="29" r="3.5" fill="#166534"/>
+        </svg>
         <div class="name">${w.pair}</div>
         <div class="px">${w.price != null ? '$' + fmtNum(w.price, w.pair === 'BTC' ? 0 : 2) : '—'}</div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   }
 
   function renderSources(data) {
@@ -540,6 +568,7 @@
     $('btn-pause')?.addEventListener('click', () => setEngineActive(false));
     tickClock();
     setInterval(tickClock, 1000);
+    initSparkles();
     animateWaves();
     fetchDashboard();
     timer = setInterval(fetchDashboard, REFRESH_MS);

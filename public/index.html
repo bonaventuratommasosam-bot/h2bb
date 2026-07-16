@@ -4,81 +4,182 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>H2BB · Minimondo Hermes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/dashboard.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏝️</text></svg>" />
 </head>
 <body class="world-body">
   <div id="error-banner" class="error-banner" hidden></div>
 
-  <!-- SKY + WORLD -->
   <div class="stage" id="stage">
+    <div class="vignette"></div>
+    <div class="noise"></div>
+
     <div class="sky" id="sky">
       <div class="stars" id="stars"></div>
-      <div class="clouds" id="clouds"></div>
-      <div class="celestial" id="celestial" aria-hidden="true"></div>
+      <div class="clouds layer-a" id="clouds"></div>
+      <div class="clouds layer-b"></div>
+      <div class="celestial" id="celestial" aria-hidden="true">
+        <span class="celestial-core"></span>
+        <span class="celestial-ring"></span>
+      </div>
       <div class="aurora" id="aurora"></div>
+      <div class="horizon-glow"></div>
     </div>
 
-    <svg class="sea" viewBox="0 0 1200 220" preserveAspectRatio="none" aria-hidden="true">
-      <defs>
-        <linearGradient id="seaGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#0c4a6e" stop-opacity="0.55"/>
-          <stop offset="100%" stop-color="#020617" stop-opacity="0.95"/>
-        </linearGradient>
-      </defs>
-      <path id="wave1" class="wave" fill="url(#seaGrad)" d=""/>
-      <path id="wave2" class="wave wave-slow" fill="#0369a4" opacity="0.25" d=""/>
-    </svg>
-
-    <!-- Mini-world canvas -->
-    <div class="archipelago" id="archipelago">
-      <!-- islands injected by JS -->
+    <!-- Multi-layer sea -->
+    <div class="sea-wrap">
+      <div class="sea-sheen"></div>
+      <svg class="sea" viewBox="0 0 1200 280" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="seaDeep" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#0ea5e9" stop-opacity="0.15"/>
+            <stop offset="35%" stop-color="#0369a4" stop-opacity="0.55"/>
+            <stop offset="100%" stop-color="#020617" stop-opacity="1"/>
+          </linearGradient>
+          <linearGradient id="seaFoam" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#7dd3fc" stop-opacity="0.35"/>
+            <stop offset="100%" stop-color="#0c4a6e" stop-opacity="0"/>
+          </linearGradient>
+          <filter id="softBlur" x="-5%" y="-5%" width="110%" height="110%">
+            <feGaussianBlur stdDeviation="1.2"/>
+          </filter>
+        </defs>
+        <path id="wave3" fill="#0284c7" opacity="0.18" d=""/>
+        <path id="wave1" fill="url(#seaDeep)" d=""/>
+        <path id="wave2" fill="url(#seaFoam)" opacity="0.55" filter="url(#softBlur)" d=""/>
+      </svg>
+      <div class="sea-sparkles" id="sparkles"></div>
     </div>
 
-    <!-- Hermes beacon / engine tower (center) -->
+    <div class="archipelago" id="archipelago"></div>
+
+    <!-- Main island with SVG art -->
     <div class="beacon-wrap" id="beacon-wrap">
       <div class="island-main" id="island-main">
-        <div class="island-soil"></div>
-        <div class="island-top"></div>
-        <div class="tower" id="tower">
-          <div class="tower-body"></div>
-          <div class="tower-light" id="tower-light"></div>
-          <div class="tower-beam" id="tower-beam"></div>
+        <svg class="island-svg" viewBox="0 0 280 200" aria-hidden="true">
+          <defs>
+            <linearGradient id="cliff" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#a16207"/>
+              <stop offset="55%" stop-color="#713f12"/>
+              <stop offset="100%" stop-color="#3f2a0e"/>
+            </linearGradient>
+            <linearGradient id="grassG" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#4ade80"/>
+              <stop offset="100%" stop-color="#166534"/>
+            </linearGradient>
+            <linearGradient id="towerG" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#64748b"/>
+              <stop offset="40%" stop-color="#cbd5e1"/>
+              <stop offset="100%" stop-color="#334155"/>
+            </linearGradient>
+            <radialGradient id="lampG" cx="40%" cy="35%" r="60%">
+              <stop offset="0%" stop-color="#fef9c3"/>
+              <stop offset="50%" stop-color="#facc15"/>
+              <stop offset="100%" stop-color="#ca8a04"/>
+            </radialGradient>
+            <filter id="glowY" x="-80%" y="-80%" width="260%" height="260%">
+              <feGaussianBlur stdDeviation="4" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+            <filter id="drop">
+              <feDropShadow dx="0" dy="6" stdDeviation="4" flood-color="#000" flood-opacity="0.45"/>
+            </filter>
+          </defs>
+          <!-- reflection in water -->
+          <ellipse cx="140" cy="178" rx="108" ry="14" fill="#000" opacity="0.28"/>
+          <!-- cliff base -->
+          <ellipse cx="140" cy="158" rx="112" ry="28" fill="url(#cliff)" filter="url(#drop)"/>
+          <ellipse cx="140" cy="148" rx="96" ry="22" fill="#92400e"/>
+          <!-- grass plateau -->
+          <ellipse cx="140" cy="132" rx="78" ry="22" fill="url(#grassG)"/>
+          <ellipse cx="140" cy="126" rx="68" ry="14" fill="#22c55e" opacity="0.55"/>
+          <!-- palm-ish trees -->
+          <g class="trees">
+            <line x1="78" y1="128" x2="78" y2="100" stroke="#78350f" stroke-width="3" stroke-linecap="round"/>
+            <circle cx="78" cy="96" r="10" fill="#16a34a"/>
+            <circle cx="70" cy="100" r="7" fill="#15803d"/>
+            <circle cx="86" cy="100" r="7" fill="#22c55e"/>
+            <line x1="198" y1="130" x2="198" y2="108" stroke="#78350f" stroke-width="2.5" stroke-linecap="round"/>
+            <circle cx="198" cy="104" r="8" fill="#16a34a"/>
+            <circle cx="192" cy="108" r="6" fill="#15803d"/>
+          </g>
+          <!-- lighthouse body -->
+          <g id="tower-group">
+            <path d="M128 128 L132 52 L148 52 L152 128 Z" fill="url(#towerG)"/>
+            <rect x="130" y="70" width="20" height="6" fill="#0f172a" opacity="0.35"/>
+            <rect x="130" y="90" width="20" height="6" fill="#0f172a" opacity="0.35"/>
+            <rect x="130" y="110" width="20" height="6" fill="#0f172a" opacity="0.35"/>
+            <!-- lantern room -->
+            <rect x="126" y="40" width="28" height="16" rx="2" fill="#1e293b"/>
+            <circle id="tower-light" class="svg-lamp" cx="140" cy="48" r="7" fill="#64748b"/>
+            <path d="M122 40 L140 28 L158 40 Z" fill="#334155"/>
+            <rect x="137" y="24" width="6" height="6" fill="#475569"/>
+          </g>
+          <!-- path -->
+          <path d="M140 148 Q148 140 152 132" fill="none" stroke="#d6d3d1" stroke-width="4" stroke-linecap="round" opacity="0.45"/>
+        </svg>
+
+        <div class="tower-beam" id="tower-beam"></div>
+        <div class="hermes" id="hermes" title="Hermes">
+          <span class="hermes-glyph">☿</span>
+          <span class="hermes-ring"></span>
         </div>
-        <div class="hermes" id="hermes" title="Hermes">☿</div>
         <div class="ship" id="ship" hidden>
-          <span class="ship-icon">⛵</span>
+          <svg class="ship-svg" viewBox="0 0 64 48" width="56" height="42">
+            <path d="M8 30 Q32 38 56 30 L50 22 H14 Z" fill="#0f172a"/>
+            <path d="M8 30 Q32 38 56 30 L52 32 Q32 38 12 32 Z" fill="#1e293b"/>
+            <path d="M30 22 V8 L46 20 H30 Z" fill="#38bdf8" class="sail"/>
+            <path d="M30 22 V12 L18 20 H30 Z" fill="#7dd3fc" class="sail sail-b"/>
+            <line x1="30" y1="8" x2="30" y2="30" stroke="#cbd5e1" stroke-width="1.5"/>
+            <circle cx="30" cy="7" r="2" fill="#fbbf24"/>
+          </svg>
           <span class="ship-label" id="ship-label"></span>
         </div>
-        <div class="storm" id="storm" hidden>⛈️</div>
+        <div class="storm" id="storm" hidden>
+          <span class="bolt">⚡</span>
+          <span class="cloud-storm"></span>
+        </div>
       </div>
       <div class="island-label">
-        <strong id="world-pair">ETH</strong>
-        <span id="world-price" class="mono">—</span>
+        <span class="pair-chip" id="world-pair">ETH</span>
+        <span id="world-price" class="mono price-glow">—</span>
       </div>
     </div>
 
-    <!-- Floating status orbs -->
     <div class="orbs">
-      <div class="orb" id="orb-engine" data-tip="Engine">
+      <div class="orb" id="orb-engine">
         <span class="orb-icon">⚡</span>
-        <span class="orb-val" id="orb-engine-val">—</span>
+        <div class="orb-text">
+          <span class="orb-k">Faro</span>
+          <span class="orb-val" id="orb-engine-val">—</span>
+        </div>
       </div>
-      <div class="orb" id="orb-equity" data-tip="Equity">
+      <div class="orb" id="orb-equity">
         <span class="orb-icon">💎</span>
-        <span class="orb-val mono" id="orb-equity-val">—</span>
+        <div class="orb-text">
+          <span class="orb-k">Tesoro</span>
+          <span class="orb-val mono" id="orb-equity-val">—</span>
+        </div>
       </div>
-      <div class="orb" id="orb-score" data-tip="Score">
+      <div class="orb" id="orb-score">
         <span class="orb-icon">🎯</span>
-        <span class="orb-val mono" id="orb-score-val">—</span>
+        <div class="orb-text">
+          <span class="orb-k">Rotta</span>
+          <span class="orb-val mono" id="orb-score-val">—</span>
+        </div>
       </div>
-      <div class="orb" id="orb-risk" data-tip="Rischio">
+      <div class="orb" id="orb-risk">
         <span class="orb-icon">🛡️</span>
-        <span class="orb-val" id="orb-risk-val">—</span>
+        <div class="orb-text">
+          <span class="orb-k">Mare</span>
+          <span class="orb-val" id="orb-risk-val">—</span>
+        </div>
       </div>
     </div>
 
-    <!-- Decision cloud -->
     <div class="thought" id="thought">
       <div class="thought-code" id="thought-code">—</div>
       <div class="thought-action" id="thought-action">ascolto il mercato…</div>
@@ -86,12 +187,14 @@
     </div>
   </div>
 
-  <!-- SIDE PANEL -->
   <aside class="panel" id="panel">
     <header class="panel-head">
-      <div>
-        <h1>Minimondo <span class="muted">Hermes</span></h1>
-        <p class="tagline">Hyperliquid · dati reali · mondo vivo</p>
+      <div class="brand-row">
+        <div class="brand-mark">☿</div>
+        <div>
+          <h1>Minimondo <span class="muted">Hermes</span></h1>
+          <p class="tagline">Hyperliquid · dati reali · mondo vivo</p>
+        </div>
       </div>
       <div class="panel-pills">
         <span id="conn" class="pill pill-warn">…</span>
@@ -163,7 +266,7 @@
       <h2>Curva equity</h2>
       <div class="chart-wrap">
         <canvas id="equity-chart" width="400" height="120"></canvas>
-        <p id="chart-empty" class="muted small chart-empty">Ancora nessuna isola conquistata (trade chiusi).</p>
+        <p id="chart-empty" class="muted small chart-empty">Ancora nessuna isola conquistata.</p>
       </div>
       <div class="stats-mini" id="stats-mini"></div>
     </section>
@@ -177,7 +280,6 @@
     </footer>
   </aside>
 
-  <!-- Hidden KPI anchors for compatibility with partial IDs used in logic -->
   <div class="sr-only" aria-hidden="true">
     <span id="kpi-engine"></span><span id="kpi-engine-sub"></span>
     <span id="kpi-price"></span><span id="kpi-pair-sub"></span>
