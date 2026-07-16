@@ -8,13 +8,17 @@ const statusRoutes = require('./routes/status');
 const dashboardApi = require('./routes/dashboard-api');
 const { router: configureRoutes, setConfigureFns } = require('./routes/configure');
 const { localOnly } = require('./middleware/local-only');
+const { securityHeaders, publicMethodGuard } = require('./middleware/security-headers');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 function createApp() {
   const app = express();
   app.set('trust proxy', 1); // dietro nginx/caddy: IP reale via X-Forwarded-For
+  app.disable('x-powered-by');
+  app.use(securityHeaders);
   app.use(express.json({ limit: '256kb' }));
+  app.use(publicMethodGuard);
 
   // --- Pubblico: solo lettura ---
   app.use(dashboardApi); // GET /api/dashboard, /api/ping, trades, events…
@@ -31,7 +35,7 @@ function createApp() {
   app.get('/dashboard', (_req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
   });
-  app.use(statusRoutes); // GET /status /health
+  app.use(statusRoutes); // GET /status /health (address redacted for remote)
 
   // --- Controlli bot: SOLO localhost ---
   app.use(localOnly);
