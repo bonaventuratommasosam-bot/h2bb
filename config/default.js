@@ -63,10 +63,16 @@ const DEFAULT_STRATEGY = {
   updatedAt: null,
 };
 
+// Mai inventare $1000: finché non arriva sync HL resta 0 + source null
 const DEFAULT_BALANCE = {
   asset: 'USDC',
-  amount: 1000,
+  amount: 0,
+  usdcPerp: null,
+  usdcSpot: null,
+  accountValue: null,
+  accountValuePerp: null,
   lastUpdated: null,
+  source: null,
 };
 
 module.exports = {

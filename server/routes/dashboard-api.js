@@ -212,9 +212,9 @@ router.get('/api/dashboard', async (req, res) => {
     try { wallet = loadWallet(); } catch {}
 
     const riskBlocked = getRiskBlocked();
-    const priceSource = price != null ? 'hyperliquid' : 'none';
+    const priceSource = price != null ? 'hyperliquid-allMids' : 'unavailable';
     const balanceSource = shared.balance?.source
-      || (portfolio?.ok ? 'hyperliquid-unified' : (dataMode === 'demo' ? 'simulated' : null));
+      || (portfolio?.ok ? 'hyperliquid-api' : (dataMode === 'demo' ? 'none' : 'error'));
 
     res.json({
       ok: true,
@@ -224,7 +224,7 @@ router.get('/api/dashboard', async (req, res) => {
         price: priceSource,
         balance: balanceSource,
         market: marketSnap?.ok ? 'hyperliquid-candles' : 'unavailable',
-        portfolio: portfolio?.ok ? 'hyperliquid' : (dataMode === 'demo' ? 'simulated' : 'error'),
+        portfolio: portfolio?.ok ? 'hyperliquid-api' : (dataMode === 'demo' ? 'none' : 'error'),
       },
       engine: {
         running: true,
@@ -247,6 +247,7 @@ router.get('/api/dashboard', async (req, res) => {
         totalInvested: held * avg,
         pnlUnrealized: Math.round(pnlUnrealized * 100) / 100,
         pnlPercent: Math.round(pnlPerc * 100) / 100,
+        // Score/RSI: calcolati da candele HL reali (non inventati, ma non sono campi nativi HL)
         score: entryScore?.score ?? marketSnap?.score ?? shared.strategy.lastSignal?.score ?? null,
         effectiveMin: entryScore?.effectiveMin ?? marketSnap?.effectiveMin ?? shared.strategy.minConfidenceScore ?? 65,
         regime: entryScore?.regime ?? marketSnap?.regime ?? null,
@@ -256,6 +257,8 @@ router.get('/api/dashboard', async (req, res) => {
         funding: marketSnap?.funding ?? null,
         openInterest: marketSnap?.openInterest ?? null,
         reasonCode: marketSnap?.reasonCode || entryScore?.reasonCode || null,
+        priceSource: price != null ? 'hyperliquid-allMids' : 'unavailable',
+        indicatorsNote: 'RSI/score da candele HL (candleSnapshot), non numeri inventati',
       },
       watchlist: watchlist || [],
       openPositions: openPositions || [],
@@ -263,12 +266,34 @@ router.get('/api/dashboard', async (req, res) => {
         usdc: shared.balance?.amount ?? null,
         usdcPerp: shared.balance?.usdcPerp ?? null,
         usdcSpot: shared.balance?.usdcSpot ?? null,
+        usdcSpotAvailable: shared.balance?.usdcSpotAvailable ?? null,
+        usdcSpotHold: shared.balance?.usdcSpotHold ?? null,
         hypeEvm: shared.balance?.hypeEvm ?? null,
         equity,
         accountValue: shared.balance?.accountValue ?? equity,
+        accountValuePerp: shared.balance?.accountValuePerp ?? null,
+        totalNtlPos: shared.balance?.totalNtlPos ?? null,
+        totalMarginUsed: shared.balance?.totalMarginUsed ?? null,
         source: balanceSource,
         lastUpdated: shared.balance?.lastUpdated || null,
+        formula: realData.hasValidAddress()
+          ? 'equity = HL perps accountValue + spot USDC available (total − hold)'
+          : null,
       },
+      hlTruth: realData.hasValidAddress()
+        ? {
+            note: 'Valori grezzi API Hyperliquid (info clearinghouse + spot + allMids)',
+            address: wallet?.address || null,
+            midPrice: price,
+            perpsAccountValue: shared.balance?.accountValuePerp ?? null,
+            spotUsdcTotal: shared.balance?.usdcSpot ?? null,
+            spotUsdcHold: shared.balance?.usdcSpotHold ?? null,
+            spotUsdcAvailable: shared.balance?.usdcSpotAvailable ?? null,
+            positionSize: position,
+            entryPx: entryPrice,
+            uPnL: posRow?.unrealizedPnl ?? pnlUnrealized,
+          }
+        : null,
       risk: {
         ...riskState,
         dayPnlPct: dayPnlPct != null ? Math.round(dayPnlPct * 100) / 100 : null,

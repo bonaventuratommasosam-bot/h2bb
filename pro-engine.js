@@ -312,6 +312,10 @@ async function runTick(ctx) {
   try {
     const pair = strategy.pair;
     const price = await getPrice(pair);
+    if (price == null || !(price > 0)) {
+      onLog(`[PRO] Prezzo HL non disponibile per ${pair} — skip tick`);
+      return { skipped: true, reason: 'no_price' };
+    }
     const position = await getPosition(pair);
     const hasPosition = Math.abs(position) > 1e-9;
     const entryPrice = await getEntryPrice(pair);

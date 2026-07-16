@@ -321,26 +321,33 @@
   function renderConnect(data) {
     const mode = data.dataMode || data.engine?.mode || 'demo';
     const pill = $('data-mode-pill');
-    if (mode === 'live') setPill(pill, 'LIVE', 'pill-live');
-    else if (mode === 'observe') setPill(pill, 'OBSERVE · real data', 'pill-observe');
-    else setPill(pill, 'DEMO · sim balance', 'pill-demo');
+    if (mode === 'live') setPill(pill, 'LIVE · HL API', 'pill-live');
+    else if (mode === 'observe') setPill(pill, 'OBSERVE · HL API', 'pill-observe');
+    else setPill(pill, 'NO WALLET', 'pill-warn');
 
     const help = $('connect-help');
+    const hl = data.hlTruth;
     if (data.connectHint) {
       help.textContent = data.connectHint;
-    } else if (mode === 'observe') {
-      help.textContent = 'Wallet in sola lettura: saldo e posizioni da Hyperliquid. Gli ordini restano disattivati finché non attivi LIVE con API key.';
-    } else if (mode === 'live') {
-      help.textContent = 'Modalità LIVE: portfolio e trading collegati a Hyperliquid.';
+    } else if (mode === 'observe' || mode === 'live') {
+      help.textContent = 'Solo numeri API Hyperliquid (allMids + clearinghouse + spot). Score/RSI = indicatori su candele HL, non campi nativi exchange.';
     } else {
-      help.textContent = 'Prezzi di mercato già reali. Collega un address 0x… per equity e posizioni vere (sola lettura).';
+      help.textContent = 'Senza address non mostriamo equity finta. Collega 0x… per dati portfolio reali.';
     }
 
     const status = $('connect-status');
-    if (data.wallet?.addressShort || data.wallet?.address) {
-      status.innerHTML = `Collegato: <code>${data.wallet.addressShort || data.wallet.address}</code> · source <code>${data.balance?.source || '—'}</code>`;
+    if (hl) {
+      status.innerHTML =
+        `HL mid <code>$${fmtNum(hl.midPrice)}</code> · ` +
+        `perp AV <code>$${fmtNum(hl.perpsAccountValue)}</code> · ` +
+        `spot avail <code>$${fmtNum(hl.spotUsdcAvailable)}</code> · ` +
+        `pos <code>${hl.positionSize != null ? Number(hl.positionSize).toFixed(5) : '—'}</code> @ ` +
+        `<code>${fmtNum(hl.entryPx)}</code> · uPnL <code>${fmtMoney(hl.uPnL)}</code>` +
+        (data.balance?.lastUpdated ? ` · fetch ${fmtTime(data.balance.lastUpdated)}` : '');
+    } else if (data.wallet?.addressShort || data.wallet?.address) {
+      status.innerHTML = `Collegato: <code>${data.wallet.addressShort || data.wallet.address}</code>`;
     } else {
-      status.textContent = 'Nessun address configurato — balance simulato ($1000).';
+      status.textContent = 'Nessun address — equity/posizioni non mostrate (niente $ inventati).';
     }
 
     // prefill input if we have full address
@@ -385,11 +392,11 @@
 
     $('kpi-equity').textContent = bal.equity != null ? `$${fmtNum(bal.equity)}` : '—';
     const eqBits = [];
-    if (bal.usdc != null) eqBits.push(`USDC ${fmtNum(bal.usdc)}`);
-    if (bal.usdcPerp != null) eqBits.push(`perp ${fmtNum(bal.usdcPerp)}`);
-    if (bal.usdcSpot != null) eqBits.push(`spot ${fmtNum(bal.usdcSpot)}`);
+    if (bal.accountValuePerp != null) eqBits.push(`perp AV $${fmtNum(bal.accountValuePerp)}`);
+    if (bal.usdcSpotAvailable != null) eqBits.push(`spot avail $${fmtNum(bal.usdcSpotAvailable)}`);
+    else if (bal.usdcSpot != null) eqBits.push(`spot $${fmtNum(bal.usdcSpot)}`);
     if (bal.source) eqBits.push(bal.source);
-    $('kpi-equity-sub').textContent = eqBits.join(' · ') || '—';
+    $('kpi-equity-sub').textContent = eqBits.join(' · ') || 'nessun dato HL';
 
     $('kpi-pnl').textContent = fmtMoney(mkt.pnlUnrealized);
     $('kpi-pnl').className = 'kpi-value mono ' + pnlClass(mkt.pnlUnrealized);
@@ -400,7 +407,9 @@
     const score = mkt.score;
     const min = mkt.effectiveMin;
     $('kpi-score').textContent = score != null ? `${fmtNum(score, 0)}` : '—';
-    $('kpi-score-sub').textContent = min != null ? `soglia ${min}` : '—';
+    $('kpi-score-sub').textContent = min != null
+      ? `soglia ${min} · da candele HL`
+      : 'indicatore motore';
     if (score != null && min != null) {
       $('kpi-score').className = 'kpi-value mono ' + (score >= min ? 'good' : score >= min - 8 ? 'warn' : '');
     }

@@ -41,13 +41,18 @@ async function syncLiveBalance(opts = {}) {
     shared.balance.amount = b.usdc;
     shared.balance.usdcPerp = b.usdcPerp ?? 0;
     shared.balance.usdcSpot = b.usdcSpot ?? 0;
+    shared.balance.usdcSpotAvailable = b.usdcSpotAvailable ?? null;
+    shared.balance.usdcSpotHold = b.usdcSpotHold ?? null;
     shared.balance.hypeEvm = b.hypeEvm ?? 0;
-    shared.balance.accountValue = b.accountValue ?? b.usdc;
-    shared.balance.lastUpdated = new Date().toISOString();
-    shared.balance.source = b.source || 'hyperliquid-unified';
+    shared.balance.accountValue = b.accountValue;
+    shared.balance.accountValuePerp = b.accountValuePerp ?? null;
+    shared.balance.totalNtlPos = b.totalNtlPos ?? null;
+    shared.balance.totalMarginUsed = b.totalMarginUsed ?? null;
+    shared.balance.lastUpdated = b.fetchedAt || new Date().toISOString();
+    shared.balance.source = b.source || 'hyperliquid-api';
     saveBalance();
-    if (pk && (!w.allocated || w.allocated < b.usdc)) {
-      w.allocated = Math.floor(b.usdc * 100) / 100;
+    if (pk && b.accountValue != null && (!w.allocated || w.allocated < b.accountValue)) {
+      w.allocated = Math.floor(b.accountValue * 100) / 100;
       saveWallet(w);
     }
   }
@@ -55,17 +60,21 @@ async function syncLiveBalance(opts = {}) {
 }
 
 async function getEquity() {
-  const price = await getPrice(shared.strategy.pair);
   const w = loadWallet();
   if (isLiveMode() || isValidHlAddress(w?.address)) {
     await syncLiveBalance({ observe: true });
-    if (shared.balance.accountValue != null && shared.balance.accountValue > 0) {
+    // Solo equity da API HL — mai fallback inventati
+    if (shared.balance.accountValue != null && Number.isFinite(shared.balance.accountValue)) {
       return shared.balance.accountValue;
     }
-    const cash = shared.balance.amount || 0;
-    const position = await getPositionSize(shared.strategy.pair);
-    return cash + Math.abs(position) * price || getAllocated();
+    if (shared.balance.accountValuePerp != null) {
+      return shared.balance.accountValuePerp + (shared.balance.usdcSpotAvailable || 0);
+    }
+    return null;
   }
+  // Demo senza address: paper equity da balance file + PnL locale (esplicito, non HL)
+  const price = await getPrice(shared.strategy.pair);
+  if (price == null) return shared.balance.amount || 0;
   const p = calcPnL();
   return (shared.balance.amount || 0) + (p.heldAmount || 0) * price;
 }

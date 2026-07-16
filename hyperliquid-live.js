@@ -113,11 +113,15 @@ async function getSpotBalances(walletAddress) {
   const addr = walletAddress.toLowerCase();
   const state = await hlInfo('spotClearinghouseState', { user: addr });
   const balances = {};
+  const holds = {};
   for (const b of state?.balances || []) {
     balances[b.coin] = parseFloat(b.total || '0');
+    holds[b.coin] = parseFloat(b.hold || '0');
   }
   const usdc = balances.USDC || 0;
-  return { usdc, balances, raw: state };
+  const usdcHold = holds.USDC || 0;
+  const usdcAvailable = Math.max(0, usdc - usdcHold);
+  return { usdc, usdcHold, usdcAvailable, balances, holds, raw: state };
 }
 
 async function getHyperEvmHype(walletAddress) {
@@ -148,21 +152,39 @@ async function getUnifiedBalance(walletAddress, privateKey) {
       getHyperEvmHype(addr),
     ]);
 
-    const usdcPerp = perps.withdrawable;
-    const usdcSpot = spot.usdc;
-    const usdc = usdcPerp + usdcSpot;
-    const accountValue = perps.accountValue + usdcSpot;
+    // Valori GREZZI da API Hyperliquid — niente stime inventate
+    const accountValuePerp = perps.accountValue; // marginSummary.accountValue
+    const withdrawablePerp = perps.withdrawable;
+    const usdcSpotTotal = spot.usdc;
+    const usdcSpotHold = spot.usdcHold || 0;
+    const usdcSpotAvailable = spot.usdcAvailable != null
+      ? spot.usdcAvailable
+      : Math.max(0, usdcSpotTotal - usdcSpotHold);
+
+    // Equity totale: perps official + spot disponibile (escl. hold, evita doppio conteggio margin)
+    const accountValue = accountValuePerp + usdcSpotAvailable;
+    // Liquidità cash-like: withdrawable perps + spot available
+    const usdc = withdrawablePerp + usdcSpotAvailable;
 
     return {
       ok: true,
+      // legacy fields
       usdc,
-      usdcPerp,
-      usdcSpot,
+      usdcPerp: withdrawablePerp,
+      usdcSpot: usdcSpotTotal,
       hypeEvm,
       accountValue,
-      withdrawable: usdcPerp,
+      withdrawable: withdrawablePerp,
       spotBalances: spot.balances,
-      source: 'hyperliquid-unified',
+      // explicit HL breakdown
+      accountValuePerp,
+      usdcSpotTotal,
+      usdcSpotHold,
+      usdcSpotAvailable,
+      totalMarginUsed: parseFloat(perps.raw?.marginSummary?.totalMarginUsed || '0') || 0,
+      totalNtlPos: parseFloat(perps.raw?.marginSummary?.totalNtlPos || '0') || 0,
+      source: 'hyperliquid-api',
+      fetchedAt: new Date().toISOString(),
     };
   } catch (err) {
     return { ok: false, error: `Lettura saldo Hyperliquid fallita: ${err.message}` };
