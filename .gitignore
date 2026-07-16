@@ -48,3 +48,8 @@ Thumbs.db
 # Runtime experiment / shadow artifacts
 strategy-experiments.json
 strategy-snapshots/
+
+# Local screenshots (may contain portfolio UI)
+public/assets/showcase-live.png
+*.screenshot.png
+
