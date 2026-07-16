@@ -19,11 +19,24 @@ function saveBalance() {
   fs.renameSync(tmp, BALANCE_FILE);
 }
 
-async function syncLiveBalance() {
+function isValidHlAddress(addr) {
+  return /^0x[a-fA-F0-9]{40}$/.test(String(addr || '')) && !/YOUR|EXAMPLE/i.test(String(addr || ''));
+}
+
+/**
+ * Sync saldo da Hyperliquid.
+ * - live: richiede mode=live + key
+ * - observe: solo address valido (lettura pubblica, no ordini)
+ */
+async function syncLiveBalance(opts = {}) {
   const w = loadWallet();
+  if (!w || !isValidHlAddress(w.address)) return null;
   const pk = walletKey(w);
-  if (!w || w.mode !== 'live' || !pk) return null;
-  const b = await hlLive.getLiveBalance(w.address, pk);
+  const allowObserve = opts.observe !== false;
+  if (w.mode !== 'live' && !allowObserve) return null;
+  if (w.mode === 'live' && !pk) return null;
+
+  const b = await hlLive.getLiveBalance(w.address, pk || undefined);
   if (b.ok) {
     shared.balance.amount = b.usdc;
     shared.balance.usdcPerp = b.usdcPerp ?? 0;
@@ -33,7 +46,7 @@ async function syncLiveBalance() {
     shared.balance.lastUpdated = new Date().toISOString();
     shared.balance.source = b.source || 'hyperliquid-unified';
     saveBalance();
-    if (!w.allocated || w.allocated < b.usdc) {
+    if (pk && (!w.allocated || w.allocated < b.usdc)) {
       w.allocated = Math.floor(b.usdc * 100) / 100;
       saveWallet(w);
     }
@@ -43,8 +56,9 @@ async function syncLiveBalance() {
 
 async function getEquity() {
   const price = await getPrice(shared.strategy.pair);
-  if (isLiveMode()) {
-    await syncLiveBalance();
+  const w = loadWallet();
+  if (isLiveMode() || isValidHlAddress(w?.address)) {
+    await syncLiveBalance({ observe: true });
     if (shared.balance.accountValue != null && shared.balance.accountValue > 0) {
       return shared.balance.accountValue;
     }
@@ -56,4 +70,4 @@ async function getEquity() {
   return (shared.balance.amount || 0) + (p.heldAmount || 0) * price;
 }
 
-module.exports = { saveBalance, syncLiveBalance, getEquity };
+module.exports = { saveBalance, syncLiveBalance, getEquity, isValidHlAddress };

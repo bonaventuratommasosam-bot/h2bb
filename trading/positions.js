@@ -7,19 +7,29 @@ const shared = require('../state/shared');
 
 const hlLive = require('../hyperliquid-live');
 
+function canReadHlPortfolio(w) {
+  const addr = w?.address || '';
+  return /^0x[a-fA-F0-9]{40}$/.test(addr) && !/YOUR|EXAMPLE/i.test(addr);
+}
+
 async function getPositionSize(pair) {
   const p = pair || shared.strategy.pair;
-  if (isLiveMode()) {
-    const w = loadWallet();
-    return hlLive.getSignedPosition(w.address, walletKey(w), p);
+  const w = loadWallet();
+  // live o observe (address reale): posizione da Hyperliquid pubblica
+  if (isLiveMode() || canReadHlPortfolio(w)) {
+    try {
+      return await hlLive.getSignedPosition(w.address, walletKey(w), p);
+    } catch {
+      return 0;
+    }
   }
   return calcPnL().heldAmount || 0;
 }
 
 async function getEntryPrice(pair) {
   const p = pair || shared.strategy.pair;
-  if (isLiveMode()) {
-    const w = loadWallet();
+  const w = loadWallet();
+  if (isLiveMode() || canReadHlPortfolio(w)) {
     try {
       return await hlLive.getEntryPrice(w.address, walletKey(w), p);
     } catch (_) {
@@ -30,4 +40,4 @@ async function getEntryPrice(pair) {
   return avg > 0 ? avg : 0;
 }
 
-module.exports = { getPositionSize, getEntryPrice };
+module.exports = { getPositionSize, getEntryPrice, canReadHlPortfolio };

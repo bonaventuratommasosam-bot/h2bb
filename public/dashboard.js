@@ -267,6 +267,91 @@
     ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
   }
 
+  function renderSources(data) {
+    const src = data.sources || {};
+    const row = $('sources-row');
+    if (!row) return;
+    const items = [
+      ['prezzo', src.price],
+      ['mercato', src.market],
+      ['portfolio', src.portfolio],
+      ['balance', src.balance],
+    ];
+    row.innerHTML = items.map(([k, v]) => {
+      const ok = v && v !== 'none' && v !== 'unavailable' && v !== 'error' && v !== 'simulated';
+      const soft = v === 'simulated';
+      return `<span class="source-chip ${ok ? 'ok' : soft ? '' : 'bad'}">${k}: ${v || '—'}</span>`;
+    }).join('');
+  }
+
+  function renderWatchlist(list) {
+    const el = $('watchlist');
+    if (!el) return;
+    if (!list || !list.length) {
+      el.innerHTML = '<span class="muted small">Nessun prezzo</span>';
+      return;
+    }
+    el.innerHTML = list.map((w) => `
+      <div class="watch-item">
+        <div class="pair">${w.pair || '—'}</div>
+        <div class="px">${w.price != null ? '$' + fmtNum(w.price, w.pair === 'BTC' ? 1 : 2) : '—'}</div>
+      </div>
+    `).join('');
+  }
+
+  function renderOpenPositions(positions) {
+    const body = $('positions-body');
+    if (!body) return;
+    if (!positions || !positions.length) {
+      body.innerHTML = '<tr><td colspan="5" class="muted">Nessuna posizione aperta su HL</td></tr>';
+      return;
+    }
+    body.innerHTML = positions.map((p) => {
+      const sideCls = p.side === 'long' ? 'badge-buy' : 'badge-sell';
+      return `<tr>
+        <td>${p.coin || '—'}</td>
+        <td class="${sideCls}">${p.side || '—'}</td>
+        <td class="mono">${fmtNum(Math.abs(p.size), 5)}</td>
+        <td class="mono">${p.entryPx != null ? fmtNum(p.entryPx, 2) : '—'}</td>
+        <td class="mono ${pnlClass(p.unrealizedPnl)}">${fmtMoney(p.unrealizedPnl)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderConnect(data) {
+    const mode = data.dataMode || data.engine?.mode || 'demo';
+    const pill = $('data-mode-pill');
+    if (mode === 'live') setPill(pill, 'LIVE', 'pill-live');
+    else if (mode === 'observe') setPill(pill, 'OBSERVE · real data', 'pill-observe');
+    else setPill(pill, 'DEMO · sim balance', 'pill-demo');
+
+    const help = $('connect-help');
+    if (data.connectHint) {
+      help.textContent = data.connectHint;
+    } else if (mode === 'observe') {
+      help.textContent = 'Wallet in sola lettura: saldo e posizioni da Hyperliquid. Gli ordini restano disattivati finché non attivi LIVE con API key.';
+    } else if (mode === 'live') {
+      help.textContent = 'Modalità LIVE: portfolio e trading collegati a Hyperliquid.';
+    } else {
+      help.textContent = 'Prezzi di mercato già reali. Collega un address 0x… per equity e posizioni vere (sola lettura).';
+    }
+
+    const status = $('connect-status');
+    if (data.wallet?.addressShort || data.wallet?.address) {
+      status.innerHTML = `Collegato: <code>${data.wallet.addressShort || data.wallet.address}</code> · source <code>${data.balance?.source || '—'}</code>`;
+    } else {
+      status.textContent = 'Nessun address configurato — balance simulato ($1000).';
+    }
+
+    // prefill input if we have full address
+    const input = $('wallet-address');
+    if (input && data.wallet?.address && data.wallet.address.startsWith('0x') && data.wallet.address.length === 42) {
+      if (!input.dataset.touched) input.value = data.wallet.address;
+    }
+
+    renderSources(data);
+  }
+
   function render(data) {
     const eng = data.engine || {};
     const mkt = data.market || {};
@@ -278,8 +363,14 @@
     // connection
     setPill($('conn'), 'online', 'pill-ok');
     lastOk = true;
-    if (eng.mode === 'live') setPill($('mode-pill'), 'LIVE', 'pill-live');
+    const mode = data.dataMode || eng.mode || 'demo';
+    if (mode === 'live') setPill($('mode-pill'), 'LIVE', 'pill-live');
+    else if (mode === 'observe') setPill($('mode-pill'), 'OBSERVE', 'pill-observe');
     else setPill($('mode-pill'), 'DEMO', 'pill-demo');
+
+    renderConnect(data);
+    renderWatchlist(data.watchlist);
+    renderOpenPositions(data.openPositions);
 
     // KPIs
     const engLabel = !eng.active ? 'PAUSA' : eng.operational ? 'OPERATIVO' : 'BLOCCATO';
@@ -293,7 +384,12 @@
     $('kpi-pair-sub').textContent = `${mkt.pair || eng.pair || '—'} · regime ${mkt.regime || 'n/d'}`;
 
     $('kpi-equity').textContent = bal.equity != null ? `$${fmtNum(bal.equity)}` : '—';
-    $('kpi-equity-sub').textContent = bal.usdc != null ? `USDC ${fmtNum(bal.usdc)}` : (bal.source || '—');
+    const eqBits = [];
+    if (bal.usdc != null) eqBits.push(`USDC ${fmtNum(bal.usdc)}`);
+    if (bal.usdcPerp != null) eqBits.push(`perp ${fmtNum(bal.usdcPerp)}`);
+    if (bal.usdcSpot != null) eqBits.push(`spot ${fmtNum(bal.usdcSpot)}`);
+    if (bal.source) eqBits.push(bal.source);
+    $('kpi-equity-sub').textContent = eqBits.join(' · ') || '—';
 
     $('kpi-pnl').textContent = fmtMoney(mkt.pnlUnrealized);
     $('kpi-pnl').className = 'kpi-value mono ' + pnlClass(mkt.pnlUnrealized);
@@ -438,8 +534,51 @@
     $('clock').textContent = new Date().toLocaleTimeString('it-IT');
   }
 
+  async function connectWallet(ev) {
+    ev.preventDefault();
+    const input = $('wallet-address');
+    const status = $('connect-status');
+    const address = (input?.value || '').trim();
+    if (!address) {
+      status.textContent = 'Inserisci un address 0x…';
+      return;
+    }
+    status.textContent = 'Connessione…';
+    try {
+      const res = await fetch('/api/wallet/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'connect failed');
+      status.innerHTML = `OK — observe su <code>${data.address.slice(0, 6)}…${data.address.slice(-4)}</code>`;
+      await fetchDashboard();
+    } catch (e) {
+      status.textContent = `Errore: ${e.message}`;
+    }
+  }
+
+  async function refreshMarket() {
+    const status = $('connect-status');
+    status.textContent = 'Aggiorno mercato HL…';
+    try {
+      await fetch('/api/market/refresh', { method: 'POST' });
+      await fetchDashboard();
+      status.textContent = 'Mercato aggiornato.';
+    } catch (e) {
+      status.textContent = `Refresh fallito: ${e.message}`;
+    }
+  }
+
   function start() {
     $('btn-refresh').addEventListener('click', () => fetchDashboard());
+    const form = $('connect-form');
+    if (form) form.addEventListener('submit', connectWallet);
+    const input = $('wallet-address');
+    if (input) input.addEventListener('input', () => { input.dataset.touched = '1'; });
+    const btnM = $('btn-refresh-market');
+    if (btnM) btnM.addEventListener('click', refreshMarket);
     tickClock();
     setInterval(tickClock, 1000);
     fetchDashboard();

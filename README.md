@@ -91,7 +91,18 @@ Se vedi **OFFLINE** / banner rosso:
 3. Su Windows preferisci `127.0.0.1` a `localhost`
 4. Test rapido: `http://127.0.0.1:40001/api/ping` deve rispondere `{"ok":true,...}`
 
-Mostra in tempo reale (refresh 5s): engine, prezzo, equity, decisione (reason code), risk meters, performance + curva equity, trade, eventi.
+### Dati reali Hyperliquid
+
+| Modalità | Cosa serve | Cosa vedi |
+|----------|------------|-----------|
+| **demo** | niente | prezzi + analisi multi-TF reali; balance simulato |
+| **observe** | solo address `0x…` in dashboard | anche equity, spot/perp, posizioni HL (sola lettura) |
+| **live** | address + API key + `WALLET_ENCRYPTION_KEY` | come observe + ordini reali |
+
+Nella UI: campo **Collega** address → mode `observe`.  
+`POST /api/wallet/connect` `{ "address": "0x…" }`.
+
+Mostra in tempo reale (refresh 5s): engine, prezzo HL, watchlist, score/RSI, equity reale, posizioni, decisione, risk, trade, eventi.
 
 API:
 

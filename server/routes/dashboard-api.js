@@ -1,4 +1,4 @@
-// API aggregate per la dashboard web
+// API aggregate per la dashboard web — dati reali Hyperliquid
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -13,6 +13,7 @@ const { HARD_CAPS, HARD_FLOORS } = require('../../lib/hard-caps');
 const performance = require('../../performance');
 const eventLog = require('../../event-log');
 const shared = require('../../state/shared');
+const realData = require('../../lib/real-data');
 
 const router = express.Router();
 
@@ -25,19 +26,6 @@ function readHeartbeat() {
     }
   } catch {}
   return null;
-}
-
-function readJsonlTail(file, limit = 50) {
-  try {
-    if (!fs.existsSync(file)) return [];
-    const raw = fs.readFileSync(file, 'utf-8').trim();
-    if (!raw) return [];
-    return raw.split('\n').filter(Boolean).slice(-limit).map((l) => {
-      try { return JSON.parse(l); } catch { return null; }
-    }).filter(Boolean);
-  } catch {
-    return [];
-  }
 }
 
 function safeStrategyView(s) {
@@ -95,7 +83,6 @@ function withTimeout(promise, ms, fallback) {
   ]);
 }
 
-// Ping istantaneo — per capire se il bot risponde senza chiamare HL
 router.get('/api/ping', (_req, res) => {
   res.json({
     ok: true,
@@ -103,40 +90,103 @@ router.get('/api/ping', (_req, res) => {
     uptime: process.uptime(),
     pair: shared.strategy?.pair || null,
     active: !!shared.strategy?.active,
+    dataMode: realData.dataMode(),
   });
+});
+
+/** Collega address Hyperliquid in sola lettura (observe). */
+router.post('/api/wallet/connect', express.json(), (req, res) => {
+  try {
+    const { address } = req.body || {};
+    const result = realData.connectAddress(address);
+    if (!result.ok) return res.status(400).json(result);
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+/** Snapshot mercato forzato. */
+router.post('/api/market/refresh', async (_req, res) => {
+  try {
+    const snap = await realData.refreshMarketSnapshot(true);
+    res.json({ ok: !!snap.ok, snapshot: snap });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 router.get('/api/dashboard', async (req, res) => {
   try {
-    if (isLiveMode()) {
-      try { await withTimeout(syncLiveBalance(), 2500, null); } catch {}
+    const dataMode = realData.dataMode();
+    const pair = shared.strategy?.pair || 'ETH';
+
+    // 1) Portfolio reale se address valido (live o observe)
+    let portfolio = null;
+    if (realData.hasValidAddress()) {
+      portfolio = await withTimeout(realData.syncPortfolio(false), 4000, null);
+      if (!portfolio?.ok) {
+        portfolio = await withTimeout(syncLiveBalance({ observe: true }), 4000, null);
+      }
+    } else if (isLiveMode()) {
+      portfolio = await withTimeout(syncLiveBalance(), 4000, null);
     }
 
-    const pair = shared.strategy?.pair || 'ETH';
-    let price = null;
+    // 2) Analisi mercato reale (candele multi-TF + score)
+    const marketSnap = await withTimeout(realData.refreshMarketSnapshot(false), 10000, null);
+
+    // 3) Prezzi watchlist
+    const watchlist = await withTimeout(
+      realData.fetchWatchlistPrices(shared.strategy?.watchlist),
+      5000,
+      []
+    );
+
+    // 4) Posizioni HL aperte
+    let openPositions = [];
+    if (realData.hasValidAddress()) {
+      openPositions = await withTimeout(realData.fetchOpenPositions(), 4000, []);
+    }
+
+    let price = marketSnap?.price ?? null;
+    if (price == null) price = await withTimeout(getPrice(pair), 3000, null);
+
     let position = 0;
     let entryPrice = 0;
-    let equity = shared.balance?.amount ?? 0;
-
-    // Timeout stretti: la UI non deve restare bloccata se Hyperliquid è lento
-    price = await withTimeout(getPrice(pair), 3000, null);
-    position = await withTimeout(getPositionSize(pair), 2500, 0);
-    entryPrice = await withTimeout(getEntryPrice(pair), 2500, 0);
-    equity = await withTimeout(getEquity(), 2500, shared.balance?.amount ?? 0);
-
-    let p = {
-      heldAmount: Math.abs(position),
-      avgBuyPrice: entryPrice,
-      totalInvested: Math.abs(position) * (entryPrice || 0),
-    };
-    if (!isLiveMode()) {
-      try { p = calcPnL(); } catch { /* keep position-based fallback */ }
+    if (realData.hasValidAddress() || isLiveMode()) {
+      position = await withTimeout(getPositionSize(pair), 3000, 0);
+      entryPrice = await withTimeout(getEntryPrice(pair), 3000, 0);
+    } else {
+      try {
+        const pDemo = calcPnL();
+        position = pDemo.heldAmount || 0;
+        entryPrice = pDemo.avgBuyPrice || 0;
+      } catch {
+        position = 0;
+        entryPrice = 0;
+      }
     }
 
-    const held = p.heldAmount || 0;
-    const avg = p.avgBuyPrice || 0;
-    const pnlUnrealized = held > 0 && price ? (held * price) - (held * avg) : 0;
-    const pnlPerc = avg > 0 && price ? ((price - avg) / avg) * 100 : 0;
+    let equity = shared.balance?.accountValue ?? shared.balance?.amount ?? 0;
+    if (realData.hasValidAddress() || isLiveMode()) {
+      equity = await withTimeout(getEquity(), 4000, equity);
+    }
+
+    const held = Math.abs(position) || 0;
+    const avg = entryPrice || 0;
+    // Preferisci uPnL ufficiale se presente nella lista posizioni
+    const posRow = openPositions.find(
+      (p) => String(p.coin).toUpperCase() === String(pair).toUpperCase()
+    );
+    let pnlUnrealized = held > 0 && price && avg
+      ? (held * price) - (held * avg)
+      : 0;
+    if (posRow && Number.isFinite(posRow.unrealizedPnl)) {
+      pnlUnrealized = posRow.unrealizedPnl;
+    }
+    const pnlPerc = avg > 0 && price
+      ? ((price - avg) / avg) * 100 * (position < 0 ? -1 : 1)
+      : 0;
 
     const riskState = shared.riskState || {};
     let stats = {};
@@ -147,6 +197,7 @@ router.get('/api/dashboard', async (req, res) => {
     try { events = eventLog.query({ limit: 40 }); } catch { events = []; }
     const heartbeat = readHeartbeat();
     const snap = shared.lastTickSnapshot || {};
+    const entryScore = marketSnap?.entryScore || snap.entryScore;
 
     const dayStart = riskState.dayStartEquity;
     const peak = riskState.peakEquity;
@@ -161,15 +212,25 @@ router.get('/api/dashboard', async (req, res) => {
     try { wallet = loadWallet(); } catch {}
 
     const riskBlocked = getRiskBlocked();
+    const priceSource = price != null ? 'hyperliquid' : 'none';
+    const balanceSource = shared.balance?.source
+      || (portfolio?.ok ? 'hyperliquid-unified' : (dataMode === 'demo' ? 'simulated' : null));
 
     res.json({
       ok: true,
       ts: new Date().toISOString(),
+      dataMode,
+      sources: {
+        price: priceSource,
+        balance: balanceSource,
+        market: marketSnap?.ok ? 'hyperliquid-candles' : 'unavailable',
+        portfolio: portfolio?.ok ? 'hyperliquid' : (dataMode === 'demo' ? 'simulated' : 'error'),
+      },
       engine: {
         running: true,
         active: !!shared.strategy.active,
         operational: !!shared.strategy.active && !riskBlocked,
-        mode: isLiveMode() ? 'live' : 'demo',
+        mode: dataMode,
         pair,
         uptime: process.uptime(),
         port: PORT,
@@ -181,21 +242,32 @@ router.get('/api/dashboard', async (req, res) => {
         pair,
         price,
         heldAmount: held,
+        positionSigned: position,
         avgBuyPrice: avg,
-        totalInvested: p.totalInvested || held * avg,
+        totalInvested: held * avg,
         pnlUnrealized: Math.round(pnlUnrealized * 100) / 100,
         pnlPercent: Math.round(pnlPerc * 100) / 100,
-        score: snap.entryScore?.score ?? shared.strategy.lastSignal?.score ?? null,
-        effectiveMin: snap.entryScore?.effectiveMin ?? shared.strategy.minConfidenceScore ?? 65,
-        regime: snap.entryScore?.regime ?? shared.strategy.lastDecision?.regime ?? null,
-        rsi: snap.analysis?.entry?.rsi ?? null,
+        score: entryScore?.score ?? marketSnap?.score ?? shared.strategy.lastSignal?.score ?? null,
+        effectiveMin: entryScore?.effectiveMin ?? marketSnap?.effectiveMin ?? shared.strategy.minConfidenceScore ?? 65,
+        regime: entryScore?.regime ?? marketSnap?.regime ?? null,
+        rsi: marketSnap?.rsi ?? snap.analysis?.entry?.rsi ?? null,
+        bias: entryScore?.bias ?? marketSnap?.bias ?? null,
+        signals: entryScore?.signals ?? marketSnap?.signals ?? [],
+        funding: marketSnap?.funding ?? null,
+        openInterest: marketSnap?.openInterest ?? null,
+        reasonCode: marketSnap?.reasonCode || entryScore?.reasonCode || null,
       },
+      watchlist: watchlist || [],
+      openPositions: openPositions || [],
       balance: {
         usdc: shared.balance?.amount ?? null,
         usdcPerp: shared.balance?.usdcPerp ?? null,
         usdcSpot: shared.balance?.usdcSpot ?? null,
+        hypeEvm: shared.balance?.hypeEvm ?? null,
         equity,
-        source: shared.balance?.source || null,
+        accountValue: shared.balance?.accountValue ?? equity,
+        source: balanceSource,
+        lastUpdated: shared.balance?.lastUpdated || null,
       },
       risk: {
         ...riskState,
@@ -216,17 +288,27 @@ router.get('/api/dashboard', async (req, res) => {
       wallet: wallet
         ? {
             mode: wallet.mode || 'demo',
-            address: wallet.address
+            dataMode,
+            address: wallet.address && realData.hasValidAddress(wallet)
+              ? wallet.address
+              : null,
+            addressShort: wallet.address && realData.hasValidAddress(wallet)
               ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`
               : null,
             live: isLiveMode(),
+            observe: dataMode === 'observe',
+            needsAddress: !realData.hasValidAddress(wallet),
           }
-        : null,
+        : { needsAddress: true, dataMode: 'demo' },
+      connectHint: realData.hasValidAddress()
+        ? null
+        : 'Inserisci il tuo address Hyperliquid (0x…) per vedere saldo e posizioni reali in sola lettura.',
       defaults: {
         minConfidenceScore: DEFAULT_STRATEGY.minConfidenceScore,
       },
     });
   } catch (e) {
+    console.error('[DASHBOARD]', e);
     res.status(500).json({ ok: false, error: e.message });
   }
 });

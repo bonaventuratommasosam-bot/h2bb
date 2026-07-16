@@ -310,6 +310,7 @@ module.exports = {
   getUnifiedBalance,
   ensurePerpCollateral,
   getSpotBalances,
+  getPerpsState,
   getHyperEvmHype,
   getPositionSize,
   getSignedPosition,

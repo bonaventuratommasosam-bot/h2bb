@@ -26,6 +26,41 @@
   </header>
 
   <main class="layout">
+    <!-- Connect wallet (real data) -->
+    <section class="card connect-card" id="connect-card">
+      <div class="card-head">
+        <h2>Dati reali Hyperliquid</h2>
+        <span id="data-mode-pill" class="pill">—</span>
+      </div>
+      <p class="connect-help muted" id="connect-help">
+        Collega l’address del wallet (sola lettura) per saldo, equity e posizioni reali.
+        I prezzi di mercato sono già live da Hyperliquid.
+      </p>
+      <form id="connect-form" class="connect-form" autocomplete="off">
+        <input
+          type="text"
+          id="wallet-address"
+          name="address"
+          placeholder="0x… address Hyperliquid"
+          spellcheck="false"
+          maxlength="42"
+        />
+        <button type="submit" class="btn-primary">Collega</button>
+        <button type="button" id="btn-refresh-market" class="btn-secondary">Aggiorna mercato</button>
+      </form>
+      <p id="connect-status" class="connect-status muted small"></p>
+      <div class="sources-row" id="sources-row"></div>
+    </section>
+
+    <!-- Watchlist -->
+    <section class="card watchlist-card" id="watchlist-card">
+      <div class="card-head">
+        <h2>Watchlist live</h2>
+        <span class="muted small">mid Hyperliquid</span>
+      </div>
+      <div class="watchlist" id="watchlist"></div>
+    </section>
+
     <!-- Row: KPIs -->
     <section class="kpis" id="kpis">
       <article class="card kpi">
@@ -120,7 +155,7 @@
         </div>
       </section>
 
-      <!-- Strategy -->
+      <!-- Strategy + positions -->
       <section class="card">
         <div class="card-head">
           <h2>Strategia</h2>
@@ -128,9 +163,28 @@
         </div>
         <dl class="kv" id="strategy-kv"></dl>
         <div class="card-head sub">
-          <h3>Posizione</h3>
+          <h3>Posizione pair</h3>
         </div>
         <dl class="kv" id="position-kv"></dl>
+        <div class="card-head sub">
+          <h3>Posizioni HL aperte</h3>
+        </div>
+        <div class="table-scroll compact">
+          <table>
+            <thead>
+              <tr>
+                <th>Coin</th>
+                <th>Side</th>
+                <th>Size</th>
+                <th>Entry</th>
+                <th>uPnL</th>
+              </tr>
+            </thead>
+            <tbody id="positions-body">
+              <tr><td colspan="5" class="muted">Nessuna / wallet non collegato</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
 
