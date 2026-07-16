@@ -3,7 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const { encrypt, decrypt } = require('./crypto');
 
-const DATA_DIR = process.env.DATA_DIR || __dirname;
+const { DATA_DIR } = require('./config/default');
+const { hasEncryptionKey } = require('./crypto');
 const WALLET_FILE = path.join(DATA_DIR, 'wallet.json');
 
 function loadJSON(file, fallback) {
@@ -51,7 +52,15 @@ function saveWallet(data) {
 
 function isLiveWallet(wallet) {
   const w = wallet || loadWallet();
-  return !!(w && w.mode === 'live' && w.address && getPrivateKey(w));
+  if (!(w && w.mode === 'live' && w.address && getPrivateKey(w))) return false;
+  if (!hasEncryptionKey()) {
+    if (!isLiveWallet._warned) {
+      console.error('[WALLET] LIVE bloccato: imposta WALLET_ENCRYPTION_KEY (min 16 char o 64 hex).');
+      isLiveWallet._warned = true;
+    }
+    return false;
+  }
+  return true;
 }
 
 function bindOwnerChatId(chatId) {

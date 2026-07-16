@@ -1,8 +1,7 @@
-# Secrets / data NEVER commit
+# Secrets / runtime data — NEVER commit
 .env
-.env.*
-*.json
-*.jsonl
+.env.local
+.env.*.local
 wallet.json
 strategy.json
 balance.json
@@ -10,6 +9,15 @@ risk-state.json
 shadow-state.json
 gateway_state.json
 channel_directory.json
+meta-controller-state.json
+proactive-state.json
+performance-feedback-state.json
+bear-state.json
+conversation-history.json
+auth.json
+
+# Logs / event streams
+*.jsonl
 a2a_audit.jsonl
 execution-fill.jsonl
 ai-signals.jsonl
@@ -19,15 +27,20 @@ strategy-changelog.jsonl
 shadow-signals.jsonl
 bear-signals.jsonl
 trade-review.jsonl
+
+# Config runtime (examples are committed)
 config/strategy.json
 config/cache/
 cache/
 memory/
-auth.json
 node_modules/
 
 # Local backups
+*.bak
 *.bak-*
 
-# OS
+# OS / IDE
 .DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,30 @@
+{
+  "name": "h2bb",
+  "version": "4.5.1",
+  "description": "H2BB / Hermes — Autonomous Hyperliquid trading bot (PRO engine + shadow learning + risk-first)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "health": "node scripts/health-monitor.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "hyperliquid",
+    "trading-bot",
+    "crypto",
+    "hermes",
+    "h2bb"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2",
+    "hyperliquid": "^1.7.7"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bonaventuratommasosam-bot/h2bb.git"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "address": "0xYOUR_HYPERLIQUID_ADDRESS",
+  "mode": "demo",
+  "apiPrivateKeyEnc": null,
+  "ownerChatId": null,
+  "allocated": 1000,
+  "_comment": "mode: demo | live. In live imposta WALLET_ENCRYPTION_KEY e salva la API wallet key cifrata (NON la seed phrase). Genera API key su app.hyperliquid.xyz/API"
+}

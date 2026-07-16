@@ -6,13 +6,26 @@ const IV_LEN = 12;
 const TAG_LEN = 16;
 const PREFIX = 'hb1:';
 
+function hasEncryptionKey() {
+  const raw = process.env.WALLET_ENCRYPTION_KEY || '';
+  return raw.length >= 16;
+}
+
 function deriveKey() {
   const raw = process.env.WALLET_ENCRYPTION_KEY || '';
   if (/^[0-9a-fA-F]{64}$/.test(raw)) {
     return Buffer.from(raw, 'hex');
   }
-  const seed = raw || process.env.DATA_DIR || __dirname;
-  return crypto.scryptSync(seed, 'hermesbro-wallet-v1', 32);
+  if (raw.length >= 16) {
+    return crypto.scryptSync(raw, 'hermesbro-wallet-v1', 32);
+  }
+  // Demo-only fallback: non usare in LIVE. Avvisa una sola volta.
+  if (!deriveKey._warned) {
+    console.warn('[CRYPTO] WALLET_ENCRYPTION_KEY assente o debole — cifratura debolmente legata al path (solo demo).');
+    deriveKey._warned = true;
+  }
+  const seed = process.env.DATA_DIR || __dirname;
+  return crypto.scryptSync(String(seed), 'hermesbro-wallet-v1', 32);
 }
 
 function encrypt(plaintext) {
@@ -42,4 +55,4 @@ function decrypt(ciphertext) {
   }
 }
 
-module.exports = { encrypt, decrypt };
+module.exports = { encrypt, decrypt, hasEncryptionKey };

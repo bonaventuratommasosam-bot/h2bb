@@ -8,21 +8,20 @@ const feedback = require('./performance-feedback');
 const tradeVerifier = require('./trade-verifier');
 const executionFill = require('./execution-fill');
 const regimeRouter = require('./regime-router');
+const { DATA_DIR } = require('./config/default');
+const { HARD_CAPS, HARD_FLOORS, clampRiskAdjustment, applyHardCaps } = require('./lib/hard-caps');
+const { sanitizeStrategy } = require('./lib/sanitize-strategy');
 
-const DATA_DIR = process.env.DATA_DIR || __dirname;
 const STATE_FILE = path.join(DATA_DIR, 'meta-controller-state.json');
 const CHANGELOG = path.join(DATA_DIR, 'strategy-changelog.jsonl');
 
-// AUTONOMY: nessun hard-limit — il bot gestisce liberamente score, size e risk.
-// Unico guard-rail: sanitize-strategy (blocca NaN/Inf, non le sue decisioni).
-//
-// RANGE RISK (autonomous adjustments, clamped by sanitize-strategy.js)
-const RISK_MIN = 0.5;
-const RISK_MAX = 4.0;
-const POS_MIN   = 30;
-const POS_MAX   = 100;
-const LOSS_MIN  = 3;
-const LOSS_MAX  = 8;
+// Autonomy limitata da hard caps (risk-first). Meta può solo muoversi dentro il range sicuro.
+const RISK_MIN = HARD_FLOORS.riskPerTradePercent;
+const RISK_MAX = HARD_CAPS.riskPerTradePercent;
+const POS_MIN   = HARD_FLOORS.maxPositionPercent;
+const POS_MAX   = HARD_CAPS.maxPositionPercent;
+const LOSS_MIN  = HARD_FLOORS.consecutiveLossLimit;
+const LOSS_MAX  = HARD_CAPS.consecutiveLossLimit;
 
 // Modalità operative
 const MODES = {
@@ -93,22 +92,26 @@ function evaluate(strategy, balance) {
   // RISK ADJUSTMENT (autonomous — based on performance, independent of mode)
   const goodPerf = fb.rollingWinRate > 55 && fb.profitFactor > 1.5 && fb.closedTrades >= 5;
   const badPerf  = fb.rollingWinRate < 40 && fb.profitFactor < 0.8 && fb.closedTrades >= 5;
-  const currentRisk = strategy.riskPerTradePercent ?? 2;
-  const currentPos  = strategy.maxPositionPercent ?? 90;
-  const currentLoss = strategy.consecutiveLossLimit ?? 5;
+  const currentRisk = strategy.riskPerTradePercent ?? 0.5;
+  const currentPos  = strategy.maxPositionPercent ?? 20;
+  const currentLoss = strategy.consecutiveLossLimit ?? 3;
 
   let newRisk = currentRisk;
   let newPos  = currentPos;
   let newLoss = currentLoss;
 
   if (goodPerf && currentRisk < RISK_MAX) {
-    newRisk = Math.min(RISK_MAX, Math.round((currentRisk + 0.5) * 10) / 10);
-    newPos  = Math.min(POS_MAX, currentPos + 10);
+    newRisk = Math.min(RISK_MAX, Math.round((currentRisk + 0.1) * 10) / 10);
+    newPos  = Math.min(POS_MAX, currentPos + 2);
   } else if (badPerf && currentRisk > RISK_MIN) {
-    newRisk = Math.max(RISK_MIN, Math.round((currentRisk - 0.5) * 10) / 10);
-    newPos  = Math.max(POS_MIN, currentPos - 10);
+    newRisk = Math.max(RISK_MIN, Math.round((currentRisk - 0.1) * 10) / 10);
+    newPos  = Math.max(POS_MIN, currentPos - 5);
     newLoss = Math.max(LOSS_MIN, currentLoss - 1);
   }
+
+  ({ risk: newRisk, pos: newPos, lossLimit: newLoss } = clampRiskAdjustment({
+    risk: newRisk, pos: newPos, lossLimit: newLoss,
+  }));
 
   if (newRisk !== currentRisk || newPos !== currentPos || newLoss !== currentLoss) {
     adjustments.riskChanged = true;
@@ -204,7 +207,7 @@ function evaluate(strategy, balance) {
       strategy.minConfidenceScore = adjustments.minScore;
     }
 
-    // Applica risk adjustment (autonomous)
+    // Applica risk adjustment (autonomous, dentro hard caps)
     if (adjustments.riskChanged) {
       strategy.riskPerTradePercent = newRisk;
       strategy.maxPositionPercent  = newPos;
@@ -219,6 +222,10 @@ function evaluate(strategy, balance) {
     } else if (prevMode === 'flat' && newMode !== 'flat') {
       strategy.active = true;
     }
+
+    // Enforce hard caps su qualsiasi modifica
+    applyHardCaps(strategy);
+    Object.assign(strategy, sanitizeStrategy(strategy));
 
     // Aggiorna stato
     state.currentMode = newMode;

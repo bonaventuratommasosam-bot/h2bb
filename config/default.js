@@ -3,7 +3,9 @@
 
 const path = require('path');
 
-const DATA_DIR = process.env.DATA_DIR || __dirname;
+// Root del repo (parent di config/), non la cartella config/
+const PROJECT_ROOT = path.join(__dirname, '..');
+const DATA_DIR = path.resolve(process.env.DATA_DIR || PROJECT_ROOT);
 const STRATEGY_FILE = path.join(DATA_DIR, 'strategy.json');
 const TRADES_FILE   = path.join(DATA_DIR, 'trades.jsonl');
 const BALANCE_FILE  = path.join(DATA_DIR, 'balance.json');
@@ -47,9 +49,12 @@ const DEFAULT_STRATEGY = {
   maxFundingRate: 0.00005,
   minVolumeRatio: 1.1,
   watchlist: ['ETH', 'BTC', 'SOL'],
+  scannerEnabled: false,
+  aiSignalEnabled: false,
   active: false,
   lastTradeAt: null,
   lastSignal: null,
+  lastDecision: null,
   trailingPeak: null,
   tp1Taken: false,
   scaleInPending: false,
@@ -65,7 +70,7 @@ const DEFAULT_BALANCE = {
 };
 
 module.exports = {
-  DATA_DIR, STRATEGY_FILE, TRADES_FILE, BALANCE_FILE,
+  PROJECT_ROOT, DATA_DIR, STRATEGY_FILE, TRADES_FILE, BALANCE_FILE,
   HL_API_HOST, HL_TIMEOUT_MS, MIN_NOTIONAL_USD, PORT, PROACTIVE_INTERVAL_MS,
   DEFAULT_STRATEGY, DEFAULT_BALANCE,
 };

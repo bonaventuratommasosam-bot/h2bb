@@ -30,6 +30,8 @@ router.get('/status', async (req, res) => {
       balance: { usdc: shared.balance.amount, usdcPerp: shared.balance.usdcPerp ?? null, usdcSpot: shared.balance.usdcSpot ?? null, hypeEvm: shared.balance.hypeEvm ?? null, source: shared.balance.source || null },
       wallet: loadWallet() ? { mode: loadWallet().mode || 'demo', address: loadWallet().address, live: isLiveMode() } : null,
       lastTrade: shared.lastTrade,
+      lastDecision: shared.strategy.lastDecision || null,
+      lastSignal: shared.strategy.lastSignal || null,
     });
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });
@@ -43,6 +45,8 @@ router.get('/health', async (req, res) => {
       riskBlocked: getRiskBlocked(), circuitBreaker: !!shared.riskState.circuitBreaker,
       circuitReason: shared.riskState.circuitReason || null,
       balance: shared.balance.amount, lastTradeAt: shared.strategy.lastTradeAt || null,
+      lastDecision: shared.strategy.lastDecision || null,
+      lastSignal: shared.strategy.lastSignal || null,
       uptime: process.uptime(), port: PORT,
     });
   } catch (e) { res.json({ ok: false, error: e.message }); }

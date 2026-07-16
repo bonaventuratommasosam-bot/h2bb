@@ -4,9 +4,9 @@
 
 ## Sessione corrente
 
-- Data inizio: 2026-06-15
-- Stato: Harness creato, feature list inizializzata
-- Ultime modifiche: v4.5 deploy (fix PnL, health, briefing)
+- Data inizio: 2026-07-16
+- Stato: Foundation open-source + safety pack eseguiti
+- Ultime modifiche: v4.5.1 — package.json, hard caps, reason codes, test suite
 
 ## Feature completate
 
@@ -63,6 +63,26 @@
 ## Feature in corso
 
 _Nessuna._
+
+## 2026-07-16 — Product hardening (eseguito)
+
+### H2BB-OS-001 — Foundation open-source (P0)
+- `package.json` + lockfile, `LICENSE` MIT, `.env.example`
+- `wallet.example.json`, `config/strategy.example.json`
+- `.gitignore` non blocca più `*.json` utili
+- `DATA_DIR` default = root progetto (non `config/`)
+- README allineato al setup reale
+
+### H2BB-OS-002 — Safety pack hard caps (P0)
+- `lib/hard-caps.js`: risk ≤1%, pos ≤25%, day −2%, DD −8%
+- sanitize + meta-controller + risk-manager rispettano ceiling
+- LIVE richiede `WALLET_ENCRYPTION_KEY`
+- Shadow: min 20 trade per promozione (era 5)
+
+### H2BB-OS-003 — Reason codes (P1)
+- `lib/reason-codes.js` + `strategy.lastDecision`
+- Chat intent `perché?`, `/status` e `/health` espongono decisione
+- 15 test unitari `npm test` green
 
 ## Ultimo stato VPS
 

@@ -7,8 +7,9 @@ const shared = require('../../state/shared');
 function handleHelp() {
   const mode = isLiveMode() ? 'LIVE' : 'DEMO';
   const strat = shared.strategy.mode === 'pro' ? 'PRO (multi-indicatore + risk manager)' : 'autonomo (RSI)';
-  return `🤖 *HermesBro Trading ${strat}* (${mode})\n\n` +
+  return `🤖 *H2BB / Hermes ${strat}* (${mode})\n\n` +
     `• \`analisi\` · \`scanner\` · \`performance\` · \`rischio\`\n` +
+    `• \`perché?\` — ultima decisione (reason code)\n` +
     `• \`come sta andando?\` · \`pausa\` · \`resume\` · \`ferma tutto\`\n` +
     `• \`compra 0.01 ETH\` · \`vendi ETH\` (manuale)\n` +
     `• \`attiva live\` · \`stato live\` · \`modalità demo\``;

@@ -21,6 +21,7 @@ function loadState() {
 }
 
 function saveStrategy() {
+  shared.strategy = sanitizeStrategy(shared.strategy);
   shared.strategy.updatedAt = new Date().toISOString();
   const tmp = STRATEGY_FILE + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(shared.strategy, null, 2));

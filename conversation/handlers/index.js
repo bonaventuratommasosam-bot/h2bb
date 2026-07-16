@@ -31,6 +31,7 @@ async function handleMessage(text) {
       case 'demoMode':    return wallet.handleDemoMode();
       case 'revokeLive':  return wallet.handleRevokeLive();
       case 'status':      return await info.handleStatus();
+      case 'why':         return info.handleWhy();
       case 'balance':     return info.handleBalance();
       case 'help':        return misc.handleHelp();
       default:            return misc.handleDefault(cmd);

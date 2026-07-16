@@ -12,6 +12,8 @@ const { getPositionSize } = require('../../trading/positions');
 const { isLiveMode, loadWallet, walletKey } = require('../../state/wallet');
 const { syncLiveBalance } = require('../../trading/balance');
 const { formatPosition } = require('../../lib/format');
+const { formatDecisionLine } = require('../../lib/reason-codes');
+const { HARD_CAPS } = require('../../lib/hard-caps');
 const shared = require('../../state/shared');
 
 const hlLive = require('../../hyperliquid-live');
@@ -71,15 +73,49 @@ async function handleStatus() {
   } else {
     msg += `SL: -${shared.strategy.stopLossPercent}% · TP: +${shared.strategy.takeProfitPercent}%\n`;
   }
-  if (shared.strategy.lastSignal?.reason) msg += `Ultimo segnale: ${shared.strategy.lastSignal.reason}\n`;
+  if (shared.strategy.lastDecision) {
+    msg += `Decisione: ${formatDecisionLine(shared.strategy.lastDecision)}\n`;
+  } else if (shared.strategy.lastSignal?.reason) {
+    msg += `Ultimo segnale: ${shared.strategy.lastSignal.reason}\n`;
+  }
   if (shared.strategy.stopLoss) msg += `Stop loss fisso: ${shared.strategy.stopLoss}\n`;
   if (shared.strategy.takeProfit) msg += `Take profit fisso: ${shared.strategy.takeProfit}\n`;
   if (shared.lastTrade) msg += `Ultimo trade: ${shared.lastTrade.type.toUpperCase()} ${shared.lastTrade.amount} ${shared.lastTrade.pair} @ ${shared.lastTrade.price.toFixed(2)}`;
   return msg;
 }
 
+/** Spiega l'ultima decisione del motore (reason code). */
+function handleWhy() {
+  const d = shared.strategy.lastDecision || shared.strategy.lastSignal;
+  if (!d) {
+    return 'Non ho ancora una decisione registrata. Attendi un tick (o scrivi *analisi*).';
+  }
+  const lines = [
+    '🧠 *Perché non tradare / ultima decisione*',
+    '',
+    formatDecisionLine(shared.strategy.lastDecision || {
+      action: d.action,
+      reason: d.reason,
+      reasonCode: d.reasonCode,
+      score: d.score,
+      at: d.at,
+    }),
+    '',
+    `Pair: *${shared.strategy.pair}* · attivo: ${shared.strategy.active ? 'sì' : 'no'}`,
+    `Soglia score: ${shared.strategy.minConfidenceScore ?? 65}`,
+    `Risk cap: ≤${HARD_CAPS.riskPerTradePercent}%/trade · pos ≤${HARD_CAPS.maxPositionPercent}% · day −${HARD_CAPS.maxDailyLossPercent}% · DD −${HARD_CAPS.maxDrawdownPercent}%`,
+  ];
+  if (getRiskBlocked()) {
+    lines.push(`\n🛑 Risk manager attivo: ${shared.riskState?.circuitReason || 'cooldown/circuit breaker'}`);
+  }
+  return lines.join('\n');
+}
+
 function handleBalance() {
   return `💰 *Saldo*\nUSDC: ${shared.balance.amount.toFixed(2)}\n${shared.strategy.pair} in portafoglio: ~${calcPnL().heldAmount.toFixed(6)}`;
 }
 
-module.exports = { handleAnalysis, handleScanner, handlePerformance, handleRisk, handleStatus, handleBalance };
+module.exports = {
+  handleAnalysis, handleScanner, handlePerformance, handleRisk,
+  handleStatus, handleWhy, handleBalance,
+};

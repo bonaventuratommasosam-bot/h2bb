@@ -1,11 +1,11 @@
 // Gestione rischio per capitale reale — limiti, sizing, circuit breaker
 const fs = require('fs');
 const path = require('path');
+const { DATA_DIR, MIN_NOTIONAL_USD: MIN_NOTIONAL_CFG } = require('./config/default');
+const { HARD_CAPS } = require('./lib/hard-caps');
 
-const DATA_DIR = process.env.DATA_DIR || __dirname;
 const RISK_FILE = path.join(DATA_DIR, 'risk-state.json');
-// FIX BUG: importa la costante invece di duplicarla
-const MIN_NOTIONAL_USD = parseFloat(process.env.MIN_NOTIONAL_USD) || 10;
+const MIN_NOTIONAL_USD = MIN_NOTIONAL_CFG || 10;
 
 const DEFAULT_RISK_STATE = {
   dayKey: null,
@@ -67,7 +67,8 @@ function checkCanTrade(strategy, state, equity) {
     return { allowed: false, state: s, reasons: [`cooldown dopo perdite (${mins} min rimasti)`] };
   }
 
-  const maxDaily = strategy.maxDailyLossPercent ?? 2;
+  // Hard caps: non superare mai i ceiling di sicurezza anche se strategy è più larga
+  const maxDaily = Math.min(strategy.maxDailyLossPercent ?? 2, HARD_CAPS.maxDailyLossPercent);
   if (s.dayStartEquity > 0) {
     const dayLossPct = ((equity - s.dayStartEquity) / s.dayStartEquity) * 100;
     s.dayPnl = equity - s.dayStartEquity;
@@ -80,7 +81,7 @@ function checkCanTrade(strategy, state, equity) {
     }
   }
 
-  const maxDd = strategy.maxDrawdownPercent ?? 8;
+  const maxDd = Math.min(strategy.maxDrawdownPercent ?? 8, HARD_CAPS.maxDrawdownPercent);
   if (s.peakEquity > 0) {
     const dd = ((equity - s.peakEquity) / s.peakEquity) * 100;
     if (dd <= -maxDd) {
@@ -131,7 +132,7 @@ function computeBudgetOrderSize({ equity, cash, price, strategy, entryScore }) {
     deployFraction = Math.min(0.92, 0.55 + extra * 0.02);
   }
 
-  const maxPosPct = (strategy.maxPositionPercent ?? 90) / 100;
+  const maxPosPct = Math.min(strategy.maxPositionPercent ?? 20, HARD_CAPS.maxPositionPercent) / 100;
   let usd = Math.min(available * deployFraction, budget * maxPosPct);
   if (usd < MIN_NOTIONAL_USD) {
     usd = Math.min(MIN_NOTIONAL_USD, available);
@@ -150,8 +151,8 @@ function computeBudgetOrderSize({ equity, cash, price, strategy, entryScore }) {
 }
 
 function computePositionSize({ equity, price, atr, strategy }) {
-  const riskPct = (strategy.riskPerTradePercent ?? 0.5) / 100;
-  const maxPosPct = (strategy.maxPositionPercent ?? 20) / 100;
+  const riskPct = Math.min(strategy.riskPerTradePercent ?? 0.5, HARD_CAPS.riskPerTradePercent) / 100;
+  const maxPosPct = Math.min(strategy.maxPositionPercent ?? 20, HARD_CAPS.maxPositionPercent) / 100;
   const atrMult = strategy.atrStopMultiplier ?? 2;
   const stopDistance = (atr || price * 0.02) * atrMult;
   if (!price || stopDistance <= 0) return { usd: 0, amount: 0, stopDistance };

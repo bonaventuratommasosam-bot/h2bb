@@ -10,9 +10,32 @@ const tradeVerifier = require('./trade-verifier');
 const regimeRouter = require('./regime-router');
 const metaController = require('./meta-controller');
 const eventLog = require('./event-log');
+const { REASON, inferReasonCode } = require('./lib/reason-codes');
+const { MIN_NOTIONAL_USD } = require('./config/default');
 
-// IMPROVEMENT: costante condivisa — andrebbe centralizzata in config/default.js
-const MIN_NOTIONAL_USD = parseFloat(process.env.MIN_NOTIONAL_USD) || 10;
+function recordDecision(strategy, signal, extras = {}) {
+  const reasonCode = signal.reasonCode
+    || inferReasonCode({
+      action: signal.action,
+      reason: signal.reason,
+      bias: signal.bias,
+      riskReasons: extras.riskReasons,
+    });
+  const decision = {
+    action: signal.action,
+    reason: signal.reason,
+    reasonCode,
+    score: signal.score ?? null,
+    minScore: extras.minScore ?? null,
+    pair: strategy.pair,
+    regime: signal.regime || extras.regime || null,
+    at: new Date().toISOString(),
+  };
+  signal.reasonCode = reasonCode;
+  strategy.lastSignal = signal;
+  strategy.lastDecision = decision;
+  return decision;
+}
 
 // Stato tick per AI ricorrenti
 const tickState = {
@@ -117,7 +140,14 @@ function scoreEntry(analysis, strategy = {}) {
   const effectiveMin = ind.dynamicMinScore(baseMin, regime, macro.ok ? macro.trend : 'neutral');
 
   if (macro.ok && macro.trend === 'bearish' && macro.adx > 25) {
-    return { score: 0, signals: ['macro bearish forte'], bias: 'blocked', regime, effectiveMin };
+    return {
+      score: 0,
+      signals: ['macro bearish forte'],
+      bias: 'blocked',
+      regime,
+      effectiveMin,
+      reasonCode: REASON.BLOCKED_MACRO_BEAR,
+    };
   }
 
   const maxFunding = strategy.maxFundingRate ?? 0.00005;
@@ -128,6 +158,7 @@ function scoreEntry(analysis, strategy = {}) {
       bias: 'blocked',
       regime,
       effectiveMin,
+      reasonCode: REASON.BLOCKED_FUNDING,
     };
   }
 
@@ -265,7 +296,15 @@ async function runTick(ctx) {
     saveRiskState,
   } = ctx;
 
-  if (!strategy.active) return { skipped: true };
+  if (!strategy.active) {
+    recordDecision(strategy, {
+      action: 'hold',
+      reason: 'strategia in pausa',
+      reasonCode: REASON.STRATEGY_INACTIVE,
+      score: 0,
+    });
+    return { skipped: true, signal: strategy.lastSignal };
+  }
 
   // FIX: try/catch globale. Prima, se analyzeMarket o executeMarketSell
   // lanciavano, l'eccezione propagava a runAutonomousTick che poteva
@@ -285,7 +324,11 @@ async function runTick(ctx) {
     const riskCheck = risk.checkCanTrade(strategy, riskState, equity);
     if (!riskCheck.allowed && !hasPosition) {
       onLog(`[PRO] Bloccato: ${riskCheck.reasons.join('; ')}`);
-      strategy.lastSignal = { action: 'blocked', reason: riskCheck.reasons[0], score: 0 };
+      recordDecision(strategy, {
+        action: 'blocked',
+        reason: riskCheck.reasons[0],
+        score: 0,
+      }, { riskReasons: riskCheck.reasons });
       saveRiskState(riskCheck.state);
       if (ctx.onAlert) ctx.onAlert('Circuit breaker', riskCheck.reasons[0]);
       return { signal: strategy.lastSignal, blocked: true };
@@ -306,7 +349,13 @@ async function runTick(ctx) {
     // Regime flat: blocca trading
     if (regimeDecision.flat && !hasPosition) {
       onLog(`[REGIME] FLAT — ${regimeDecision.flatReason}`);
-      strategy.lastSignal = { action: 'hold', reason: regimeDecision.flatReason, score: 0, regime: regimeDecision.classification.regime };
+      recordDecision(strategy, {
+        action: 'hold',
+        reason: regimeDecision.flatReason,
+        reasonCode: REASON.REGIME_FLAT,
+        score: 0,
+        regime: regimeDecision.classification.regime,
+      }, { minScore, regime: regimeDecision.classification.regime });
       return { signal: strategy.lastSignal, flat: true, regime: regimeDecision.classification.regime };
     }
 
@@ -546,32 +595,69 @@ async function runTick(ctx) {
       }
 
       if (strategy.scaleInPending && exit.action === 'hold' && entryScore.score >= minScore + 5) {
-        signal = { action: 'add', reason: `scale-in ${entryScore.score}/${minScore}`, score: entryScore.score, leg: 'add' };
+        signal = {
+          action: 'add',
+          reason: `scale-in ${entryScore.score}/${minScore}`,
+          score: entryScore.score,
+          leg: 'add',
+          reasonCode: REASON.SCALE_IN,
+        };
       } else {
-        signal = { action: exit.action, reason: exit.reason, score: exit.urgency, partial: exit.partial, partialPercent: exit.partialPercent, analysis: entryScore.signals };
+        signal = {
+          action: exit.action,
+          reason: exit.reason,
+          score: exit.urgency,
+          partial: exit.partial,
+          partialPercent: exit.partialPercent,
+          analysis: entryScore.signals,
+          reasonCode: exit.action === 'sell'
+            ? (exit.partial ? REASON.PARTIAL_TP : REASON.SELL_EXIT)
+            : REASON.HOLD_POSITION,
+        };
       }
     } else if (!canTrade) {
-      signal = { action: 'hold', reason: 'cooldown tra trade', score: entryScore.score, analysis: entryScore.signals };
+      signal = {
+        action: 'hold',
+        reason: 'cooldown tra trade',
+        score: entryScore.score,
+        analysis: entryScore.signals,
+        reasonCode: REASON.TRADE_INTERVAL,
+      };
     } else if (entryScore.bias === 'blocked') {
-      signal = { action: 'hold', reason: entryScore.signals[0] || 'bloccato', score: 0, analysis: entryScore.signals };
+      signal = {
+        action: 'hold',
+        reason: entryScore.signals[0] || 'bloccato',
+        score: 0,
+        analysis: entryScore.signals,
+        reasonCode: entryScore.reasonCode || REASON.BLOCKED_MACRO_BEAR,
+      };
     } else if (entryScore.bias === 'long' && riskCheck.allowed) {
       signal = {
         action: 'buy',
         reason: `confluenza ${entryScore.score}/${minScore} [${entryScore.regime}]: ${entryScore.signals.join(', ')}`,
         score: entryScore.score,
         analysis: entryScore.signals,
+        reasonCode: REASON.BUY_CONFLUENCE,
       };
     } else {
+      const watch = entryScore.bias === 'watch';
       signal = {
         action: 'hold',
         reason: `score ${entryScore.score}/${minScore} [${entryScore.regime}] — ${entryScore.signals.join(', ') || 'attesa'}`,
         score: entryScore.score,
         analysis: entryScore.signals,
+        reasonCode: watch ? REASON.SCORE_WATCH : REASON.SCORE_BELOW,
       };
     }
 
+    recordDecision(strategy, signal, {
+      minScore,
+      regime: entryScore.regime,
+      riskReasons: riskCheck.reasons,
+    });
+
     const rsi = analysis.entry.ok ? analysis.entry.rsi : null;
-    onLog(`[PRO] ${pair} $${price.toFixed(2)} RSI=${rsi?.toFixed(1) ?? 'n/d'} score=${entryScore.score}/${minScore} ${entryScore.regime} → ${signal.action}`);
+    onLog(`[PRO] ${pair} $${price.toFixed(2)} RSI=${rsi?.toFixed(1) ?? 'n/d'} score=${entryScore.score}/${minScore} ${entryScore.regime} → ${signal.action} [${signal.reasonCode}]`);
 
     if (signal.action === 'sell' && hasPosition) {
       const partial = signal.partial ? (signal.partialPercent ?? 50) / 100 : 1;
@@ -620,7 +706,12 @@ async function runTick(ctx) {
       // IMPROVEMENT: usa costante MIN_NOTIONAL_USD invece di magic number 10
       if (!orderAmount || notional < MIN_NOTIONAL_USD) {
         onLog(`[PRO] Skip buy: ${sizing.reason || 'size auto insufficiente'} (budget $${(sizing.budget ?? cash).toFixed(2)})`);
-        strategy.lastSignal = { action: 'hold', reason: sizing.reason || 'budget insufficiente', score: entryScore.score };
+        recordDecision(strategy, {
+          action: 'hold',
+          reason: sizing.reason || 'budget insufficiente',
+          score: entryScore.score,
+          reasonCode: REASON.SCORE_BELOW,
+        }, { minScore });
         return { signal: strategy.lastSignal, result: null, analysis };
       }
 
@@ -641,13 +732,17 @@ async function runTick(ctx) {
       return { signal, result: res, analysis, sizing: { ...sizing, leg: 'full' } };
     }
 
-    strategy.lastSignal = signal;
     return { signal, result: null, analysis };
   } catch (e) {
     // FIX: catch globale — prima un'eccezione non catturata poteva crashare
     // il tick e lasciare strategy in stato inconsistente.
     console.error('[PRO] Errore runTick:', e.message, e.stack);
-    strategy.lastSignal = { action: 'hold', reason: `errore interno: ${e.message}`, score: 0 };
+    recordDecision(strategy, {
+      action: 'hold',
+      reason: `errore interno: ${e.message}`,
+      score: 0,
+      reasonCode: REASON.UNKNOWN,
+    });
     return { signal: strategy.lastSignal, error: e.message };
   }
 }

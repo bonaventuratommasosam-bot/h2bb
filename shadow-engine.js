@@ -10,8 +10,9 @@ const STATE_FILE = path.join(DATA_DIR, 'shadow-state.json');
 const SIGNALS_FILE = path.join(DATA_DIR, 'shadow-signals.jsonl');
 const CHANGELOG_FILE = path.join(DATA_DIR, 'strategy-changelog.jsonl');
 
-const TRADES_FOR_COMPARE = 5;
-const PROMOTION_PF_MARGIN = 1.10;
+// Sample minimo per promozione (riduce lucky noise). Override: SHADOW_TRADES_FOR_COMPARE
+const TRADES_FOR_COMPARE = parseInt(process.env.SHADOW_TRADES_FOR_COMPARE, 10) || 20;
+const PROMOTION_PF_MARGIN = parseFloat(process.env.SHADOW_PF_MARGIN) || 1.15;
 const MIN_NOTIONAL_USD = parseFloat(process.env.MIN_NOTIONAL_USD) || 10;
 
 // Parametri testati in rotazione (1 alla volta)

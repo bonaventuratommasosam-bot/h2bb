@@ -32,6 +32,7 @@ function parseMessage(text) {
   if (/^(ferma\s*tutto|kill|emergency)\b/i.test(lower)) return { action: 'kill' };
   if (/^(pausa|pause|stop|ferma)\b/i.test(lower)) return { action: 'pause' };
   if (/^(resume|riprendi|riattiva|riparti)\b/i.test(lower)) return { action: 'resume' };
+  if (/^(perch[eé]|why|decisione|motivo|perch[eé]\s*(non|flat|hold))/i.test(lower)) return { action: 'why' };
   if (/^(analisi|analysis|mercato)\b/i.test(lower)) return { action: 'analysis' };
   if (/^(scanner|scan|opportunit[aà])\b/i.test(lower)) return { action: 'scanner' };
   if (/^(performance|statistiche|win\s*rate)\b/i.test(lower)) return { action: 'performance' };
