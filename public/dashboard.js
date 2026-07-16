@@ -78,6 +78,10 @@
       position: mkt.positionSigned ?? mkt.heldAmount ?? 0,
       pnl: mkt.pnlUnrealized,
       equity: data.balance?.equity,
+      accountValuePerp: data.balance?.accountValuePerp,
+      usdcSpotAvailable: data.balance?.usdcSpotAvailable,
+      funding: mkt.funding,
+      signals: mkt.signals || [],
       watchlist: data.watchlist || [],
       openPositions: data.openPositions || [],
     });
@@ -318,6 +322,31 @@
     if (up) {
       up.textContent = fmtMoney(mkt.pnlUnrealized);
       up.className = 'hm-v mono ' + pnlClass(mkt.pnlUnrealized);
+    }
+    const perp = $('panel-perp');
+    if (perp) perp.textContent = bal.accountValuePerp != null ? `$${fmtNum(bal.accountValuePerp)}` : '—';
+    const spot = $('panel-spot');
+    if (spot) spot.textContent = bal.usdcSpotAvailable != null ? `$${fmtNum(bal.usdcSpotAvailable)}` : '—';
+    const sc = $('panel-score');
+    if (sc) {
+      sc.textContent = mkt.score != null ? `${fmtNum(mkt.score, 0)}/${mkt.effectiveMin ?? '—'}` : '—';
+    }
+
+    // bottom ticker with live HL facts
+    const tick = $('live-ticker');
+    if (tick) {
+      const parts = [
+        `HL ${mkt.pair || '—'} ${mkt.price != null ? '$' + fmtNum(mkt.price) : '—'}`,
+        bal.equity != null ? `equity $${fmtNum(bal.equity)}` : null,
+        bal.accountValuePerp != null ? `perp $${fmtNum(bal.accountValuePerp)}` : null,
+        bal.usdcSpotAvailable != null ? `spot $${fmtNum(bal.usdcSpotAvailable)}` : null,
+        mkt.pnlUnrealized != null ? `uPnL ${fmtMoney(mkt.pnlUnrealized)}` : null,
+        mkt.funding != null ? `funding ${(mkt.funding * 100).toFixed(4)}%` : null,
+        mkt.score != null ? `score ${fmtNum(mkt.score, 0)}/${mkt.effectiveMin}` : null,
+        data.wallet?.addressShort ? `wallet ${data.wallet.addressShort}` : null,
+        `src ${data.sources?.price || '—'}/${data.sources?.portfolio || '—'}`,
+      ].filter(Boolean);
+      tick.textContent = parts.join('   ·   ');
     }
   }
 

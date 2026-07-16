@@ -3,30 +3,61 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Hermes Minimondo — vetrina 8K live del trading bot Hyperliquid" />
-  <title>H2BB · Minimondo Hermes · 8K</title>
+  <meta name="description" content="Hermes vetrina live — dati reali Hyperliquid" />
+  <title>H2BB · Hermes · Hyperliquid Live</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/dashboard.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏝️</text></svg>" />
+  <link rel="icon" href="/assets/hermes-pfp.jpg" />
 </head>
 <body class="world-body">
   <div id="error-banner" class="error-banner" hidden></div>
 
   <div class="stage" id="stage">
-    <canvas id="world-canvas" aria-label="Minimondo Hermes"></canvas>
+    <!-- Contesto video (riferimento _AI_Media) -->
+    <video
+      id="bg-video"
+      class="bg-video"
+      autoplay
+      muted
+      loop
+      playsinline
+      preload="auto"
+      poster="/assets/hermes-pfp.jpg"
+    >
+      <source src="/assets/bg-ops.mp4" type="video/mp4" data-mood="ops" />
+    </video>
+    <video
+      id="bg-video-b"
+      class="bg-video bg-video-b"
+      autoplay
+      muted
+      loop
+      playsinline
+      preload="metadata"
+      hidden
+    >
+      <source src="/assets/bg-hangar.mp4" type="video/mp4" data-mood="hangar" />
+    </video>
+    <div class="bg-scrim" id="bg-scrim"></div>
+
+    <!-- Overlay dati (canvas trasparente, no PFP sull'isola) -->
+    <canvas id="world-canvas" aria-label="Overlay dati Hyperliquid"></canvas>
+
     <div class="thought" id="thought">
       <div class="thought-head">
         <img src="/assets/hermes-pfp.jpg" alt="" class="thought-avatar" width="44" height="44" />
         <div>
-          <div class="thought-kicker">Hermes dice</div>
+          <div class="thought-kicker">Hermes · live</div>
           <div class="thought-code" id="thought-code">—</div>
         </div>
       </div>
-      <div class="thought-action" id="thought-action">ascolto il mercato…</div>
+      <div class="thought-action" id="thought-action">ascolto Hyperliquid…</div>
       <div class="thought-reason" id="thought-reason"></div>
     </div>
+
+    <div class="live-ticker" id="live-ticker" aria-live="polite"></div>
   </div>
 
   <aside class="panel" id="panel">
@@ -36,8 +67,8 @@
           <img src="/assets/hermes-pfp.jpg" alt="Hermes" class="brand-hermes" width="48" height="48" />
         </div>
         <div>
-          <h1>Minimondo <span class="muted">Hermes</span></h1>
-          <p class="tagline">Vetrina live · sola lettura · Hyperliquid</p>
+          <h1>Hermes <span class="muted">Live</span></h1>
+          <p class="tagline">Vetrina · sola lettura · Hyperliquid</p>
         </div>
       </div>
       <div class="panel-pills">
@@ -49,12 +80,12 @@
     </header>
 
     <section class="panel-card hero-card">
-      <p class="showcase-banner muted small" id="showcase-banner">
-        Solo visualizzazione — nessun controllo sul bot da questa pagina.
+      <p class="showcase-banner muted small">
+        Solo visualizzazione · dati reali da Hyperliquid · nessun controllo
       </p>
       <div class="hero-metrics">
         <div>
-          <span class="hm-k">Equity</span>
+          <span class="hm-k">Equity HL</span>
           <strong class="hm-v mono" id="orb-equity-val">—</strong>
         </div>
         <div>
@@ -66,6 +97,20 @@
           <strong class="hm-v mono" id="panel-upnl">—</strong>
         </div>
       </div>
+      <div class="hero-metrics hero-metrics-2">
+        <div>
+          <span class="hm-k">Perp AV</span>
+          <strong class="hm-v mono small-v" id="panel-perp">—</strong>
+        </div>
+        <div>
+          <span class="hm-k">Spot avail</span>
+          <strong class="hm-v mono small-v" id="panel-spot">—</strong>
+        </div>
+        <div>
+          <span class="hm-k">Score</span>
+          <strong class="hm-v mono small-v" id="panel-score">—</strong>
+        </div>
+      </div>
       <div class="sources-row" id="sources-row"></div>
       <p id="connect-status" class="connect-status muted small"></p>
       <span id="data-mode-pill" class="pill" hidden>—</span>
@@ -73,46 +118,46 @@
     </section>
 
     <section class="panel-card">
-      <h2>Stato del mondo</h2>
+      <h2>Hyperliquid · stato</h2>
       <dl class="kv" id="world-kv"></dl>
       <p class="muted small" id="hl-truth-line"></p>
     </section>
 
     <section class="panel-card">
-      <h2>Isole mercato</h2>
+      <h2>Mercato (allMids)</h2>
       <div class="watchlist" id="watchlist"></div>
     </section>
 
     <section class="panel-card">
-      <h2>Flotta</h2>
+      <h2>Posizioni aperte</h2>
       <div class="table-scroll compact">
         <table>
           <thead>
             <tr><th>Coin</th><th>Side</th><th>Size</th><th>uPnL</th></tr>
           </thead>
           <tbody id="positions-body">
-            <tr><td colspan="4" class="muted">Mare calmo</td></tr>
+            <tr><td colspan="4" class="muted">Nessuna posizione</td></tr>
           </tbody>
         </table>
       </div>
     </section>
 
     <section class="panel-card">
-      <h2>Tracce</h2>
+      <h2>Trade recenti</h2>
       <div class="table-scroll compact">
         <table>
           <thead>
             <tr><th>Quando</th><th>Tipo</th><th>Pair</th><th>PnL</th></tr>
           </thead>
           <tbody id="trades-body">
-            <tr><td colspan="4" class="muted">Nessuna traccia</td></tr>
+            <tr><td colspan="4" class="muted">Nessun trade</td></tr>
           </tbody>
         </table>
       </div>
     </section>
 
     <section class="panel-card">
-      <h2>Curva equity</h2>
+      <h2>Equity curve</h2>
       <div class="chart-wrap">
         <canvas id="equity-chart" width="400" height="120"></canvas>
         <p id="chart-empty" class="muted small chart-empty">Nessun trade chiuso.</p>
@@ -129,7 +174,6 @@
     </footer>
   </aside>
 
-  <!-- compat stubs -->
   <div class="sr-only" aria-hidden="true">
     <span id="orb-engine-val"></span><span id="orb-score-val"></span><span id="orb-risk-val"></span>
     <span id="world-pair"></span><span id="world-price"></span>
