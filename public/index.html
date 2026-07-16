@@ -3,12 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Hermes — live Hyperliquid autonomous trading showcase. Read-only public terminal." />
+  <meta name="description" content="Hermes Terminal — public read-only Hyperliquid trading showcase. Live mark mid, equity, positions, bot fills, strategy signal, and TradingView ETHUSD chart. No remote control." />
   <meta name="theme-color" content="#06090f" />
-  <meta property="og:title" content="Hermes · Hyperliquid Live" />
-  <meta property="og:description" content="Read-only live trading terminal. Real Hyperliquid account & market data." />
+  <meta property="og:title" content="Hermes Terminal · Hyperliquid Live" />
+  <meta property="og:description" content="View-only institutional terminal: HL perp mid + portfolio, live signal from score, bot fill markers, TradingView ETHUSD. Controls stay on the server." />
   <meta property="og:type" content="website" />
-  <title>Hermes · Hyperliquid Live</title>
+  <meta property="og:site_name" content="Hermes Terminal" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Hermes Terminal · Hyperliquid Live" />
+  <meta name="twitter:description" content="Public read-only Hyperliquid agent terminal — real data, view only." />
+  <title>Hermes Terminal · Hyperliquid Live</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://s3.tradingview.com" />
@@ -39,7 +43,7 @@
               <span class="stage-title">HERMES</span>
               <span class="stage-ver">TERMINAL</span>
             </div>
-            <div class="stage-sub">Autonomous Hyperliquid agent · public feed</div>
+            <div class="stage-sub">Autonomous Hyperliquid agent · public read-only terminal</div>
           </div>
         </div>
         <div class="stage-status">
@@ -53,8 +57,8 @@
 
       <div class="tv-shell">
         <div class="tv-bar">
-          <span class="tv-bar-label">Live chart</span>
-          <span class="tv-bar-src mono" id="tv-bar-src">TradingView</span>
+          <span class="tv-bar-label">Live chart · ETHUSD ref</span>
+          <span class="tv-bar-src mono" id="tv-bar-src">TradingView · COINBASE:ETHUSD</span>
           <div class="tv-bar-actions">
             <button type="button" class="tv-btn" data-tv-tf="5" title="5m">5m</button>
             <button type="button" class="tv-btn is-active" data-tv-tf="15" title="15m">15m</button>
@@ -90,7 +94,7 @@
         </section>
 
         <section class="signal-card" id="thought">
-          <div class="signal-label">Strategy signal</div>
+          <div class="signal-label">Live signal (score)</div>
           <div class="signal-code mono" id="thought-code">—</div>
           <div class="signal-action" id="thought-action">Waiting for market data…</div>
           <div class="signal-reason" id="thought-reason"></div>

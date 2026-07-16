@@ -1,7 +1,7 @@
 {
   "name": "h2bb",
   "version": "4.6.0",
-  "description": "H2BB / Hermes — Autonomous Hyperliquid trading bot (PRO engine + shadow learning + risk-first)",
+  "description": "H2BB / Hermes — autonomous Hyperliquid trading bot with public read-only terminal showcase (PRO engine, risk-first hard caps, live HL data)",
   "main": "index.js",
   "scripts": {
     "prestart": "node scripts/ensure-config.js",
