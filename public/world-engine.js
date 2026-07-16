@@ -35,6 +35,9 @@
       this.birds = [];
       this.foam = [];
       this.bolts = 0;
+      this.hermesImg = null;
+      this.hermesReady = false;
+      this._loadHermes();
       this._resize();
       this._seedStars();
       this._seedFoam();
@@ -42,6 +45,21 @@
       this._raf = null;
       this._last = performance.now();
       this.start();
+    }
+
+    _loadHermes() {
+      const img = new Image();
+      img.decoding = 'async';
+      img.onload = () => {
+        this.hermesImg = img;
+        this.hermesReady = true;
+      };
+      img.onerror = () => {
+        console.warn('[world] hermes avatar missing: /assets/hermes.jpg');
+        this.hermesReady = false;
+      };
+      // bust cache when updating art
+      img.src = '/assets/hermes.jpg?v=1';
     }
 
     setState( partial ) {
@@ -451,17 +469,7 @@
       // lighthouse
       this._lighthouse(ctx, 0, -8, s);
 
-      // hermes mark
-      ctx.save();
-      ctx.translate(40, -18);
-      ctx.font = '22px serif';
-      ctx.fillStyle = '#fde68a';
-      ctx.shadowColor = 'rgba(253,224,71,0.55)';
-      ctx.shadowBlur = 12;
-      ctx.fillText('☿', 0, 0);
-      ctx.restore();
-
-      // small cabin
+      // cabin (left)
       ctx.fillStyle = '#44403c';
       ctx.fillRect(-70, -18, 22, 14);
       ctx.fillStyle = '#292524';
@@ -474,6 +482,108 @@
       ctx.globalAlpha = s.active ? 0.9 : 0.25;
       ctx.fillRect(-64, -12, 5, 5);
       ctx.globalAlpha = 1;
+
+      // Hermes mascot (user art) — right of lighthouse
+      this._drawHermes(ctx, 48, -6, s);
+
+      ctx.restore();
+    }
+
+    /**
+     * Rana blu Hermes (assets/hermes.jpg) sull'isola.
+     */
+    _drawHermes(ctx, x, y, s) {
+      const bob = Math.sin(this.t * 2.2) * 3;
+      ctx.save();
+      ctx.translate(x, y + bob);
+
+      // ground shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.beginPath();
+      ctx.ellipse(0, 28, 26, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // soft glow ring (engine mood)
+      if (s.active && !s.blocked) {
+        const g = ctx.createRadialGradient(0, 0, 8, 0, 0, 48);
+        g.addColorStop(0, 'rgba(56,189,248,0.35)');
+        g.addColorStop(0.5, 'rgba(45,212,191,0.12)');
+        g.addColorStop(1, 'transparent');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(0, 0, 48, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (s.blocked) {
+        const g = ctx.createRadialGradient(0, 0, 8, 0, 0, 44);
+        g.addColorStop(0, 'rgba(251,113,133,0.35)');
+        g.addColorStop(1, 'transparent');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(0, 0, 44, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const size = 72;
+      if (this.hermesReady && this.hermesImg) {
+        // circular clip portrait
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(0, -4, size * 0.48, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.clip();
+        // image is full body — crop upper body/face for island avatar
+        const img = this.hermesImg;
+        const iw = img.naturalWidth || img.width;
+        const ih = img.naturalHeight || img.height;
+        // focus on head+torso
+        const sx = iw * 0.18;
+        const sy = ih * 0.02;
+        const sw = iw * 0.64;
+        const sh = ih * 0.55;
+        ctx.drawImage(img, sx, sy, sw, sh, -size / 2, -size / 2 - 4, size, size);
+        ctx.restore();
+
+        // rim
+        ctx.strokeStyle = s.active
+          ? (s.blocked ? 'rgba(251,113,133,0.85)' : 'rgba(125,211,252,0.9)')
+          : 'rgba(148,163,184,0.55)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(0, -4, size * 0.48, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // full-body mini figure beside circle (fun mascot)
+        ctx.save();
+        ctx.globalAlpha = 0.95;
+        const fw = 38;
+        const fh = 52;
+        ctx.drawImage(img, 22, -8, fw, fh);
+        ctx.restore();
+      } else {
+        // fallback glyph while loading
+        ctx.font = '28px serif';
+        ctx.fillStyle = '#fde68a';
+        ctx.textAlign = 'center';
+        ctx.fillText('☿', 0, 8);
+      }
+
+      // nameplate
+      ctx.font = '700 10px "DM Sans", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(8,15,30,0.82)';
+      const label = 'HERMES';
+      const tw = ctx.measureText(label).width;
+      const lx = -tw / 2 - 8;
+      const ly = 36;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(lx, ly, tw + 16, 16, 8);
+      else ctx.rect(lx, ly, tw + 16, 16);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(56,189,248,0.35)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = '#7dd3fc';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, 0, ly + 11);
 
       ctx.restore();
     }
