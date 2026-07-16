@@ -1,0 +1,19 @@
+{
+  "experiments": [
+    {
+      "ts": "2026-07-16T13:54:54.669Z",
+      "param": "minConfidenceScore",
+      "paramLabel": "Soglia confidenza",
+      "championValue": 65,
+      "challengerValue": 70,
+      "championQuality": 0,
+      "challengerQuality": 0,
+      "improvement": 0,
+      "promoted": false,
+      "championSignals": 0,
+      "challengerSignals": 0,
+      "pair": "ETH"
+    }
+  ],
+  "lastRunAt": 1784210093098
+}

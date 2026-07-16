@@ -88,22 +88,41 @@ function buildEquityCurve(trades, limit = 100) {
   });
 }
 
+function withTimeout(promise, ms, fallback) {
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallback),
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
+// Ping istantaneo — per capire se il bot risponde senza chiamare HL
+router.get('/api/ping', (_req, res) => {
+  res.json({
+    ok: true,
+    ts: new Date().toISOString(),
+    uptime: process.uptime(),
+    pair: shared.strategy?.pair || null,
+    active: !!shared.strategy?.active,
+  });
+});
+
 router.get('/api/dashboard', async (req, res) => {
   try {
     if (isLiveMode()) {
-      try { await syncLiveBalance(); } catch {}
+      try { await withTimeout(syncLiveBalance(), 2500, null); } catch {}
     }
 
-    const pair = shared.strategy.pair;
+    const pair = shared.strategy?.pair || 'ETH';
     let price = null;
     let position = 0;
     let entryPrice = 0;
     let equity = shared.balance?.amount ?? 0;
 
-    try { price = await getPrice(pair); } catch {}
-    try { position = await getPositionSize(pair); } catch {}
-    try { entryPrice = await getEntryPrice(pair); } catch {}
-    try { equity = await getEquity(); } catch {}
+    // Timeout stretti: la UI non deve restare bloccata se Hyperliquid è lento
+    price = await withTimeout(getPrice(pair), 3000, null);
+    position = await withTimeout(getPositionSize(pair), 2500, 0);
+    entryPrice = await withTimeout(getEntryPrice(pair), 2500, 0);
+    equity = await withTimeout(getEquity(), 2500, shared.balance?.amount ?? 0);
 
     let p = {
       heldAmount: Math.abs(position),

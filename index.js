@@ -51,8 +51,11 @@ function _tickRunning_check() { return tickRunner.isTickRunning(); }
 // --- Express ---
 const app = createApp();
 
-app.listen(PORT, HOST, () => {
-  const base = `http://${HOST}:${PORT}`;
+function onServerReady(boundHost) {
+  const displayHost = boundHost === '0.0.0.0' || boundHost === '::'
+    ? '127.0.0.1'
+    : (boundHost === '::1' ? 'localhost' : boundHost);
+  const base = `http://${displayHost}:${PORT}`;
   console.log(`\n╔══════════════════════════════════════════╗`);
   console.log(`║  H2BB / Hermes v4.6 — DASHBOARD         ║`);
   console.log(`║  Server: ${base.padEnd(32)}║`);
@@ -61,6 +64,9 @@ app.listen(PORT, HOST, () => {
   console.log(`║  Mode: ${String(shared.strategy.mode || 'autonomous').padEnd(34)}║`);
   console.log(`║  Active: ${String(shared.strategy.active).padEnd(31)}║`);
   console.log(`╚══════════════════════════════════════════╝\n`);
+  console.log(`  → Dashboard: ${base}/`);
+  console.log(`  → Health:    ${base}/health`);
+  console.log(`  → API:       ${base}/api/dashboard\n`);
 
   hermesProfile.ensureProfile(DATA_DIR, {
     agentName: `client-trade-${process.env.ORDER_ID || '1'}`,
@@ -87,4 +93,47 @@ app.listen(PORT, HOST, () => {
   if (shared.strategy.active) {
     setTimeout(runAutonomousTick, 3000);
   }
-});
+}
+
+/**
+ * Avvia il server HTTP.
+ * Default: 127.0.0.1 + tentativo ::1 (fix Windows: localhost → IPv6).
+ * Override: HOST=0.0.0.0 per LAN.
+ */
+function startHttpServer() {
+  const hosts = process.env.HOST
+    ? [process.env.HOST]
+    : ['127.0.0.1', '::1'];
+
+  let readyLogged = false;
+  let ok = 0;
+
+  for (const host of hosts) {
+    const server = app.listen(PORT, host, () => {
+      ok += 1;
+      if (!readyLogged) {
+        readyLogged = true;
+        onServerReady(host);
+      } else {
+        console.log(`[HTTP] anche in ascolto su [${host}]:${PORT}`);
+      }
+    });
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        if (host === hosts[0]) {
+          console.error(`\n[FATAL] Porta ${PORT} già in uso su ${host}.`);
+          console.error(`  Chiudi l'altro processo o usa:  set PORT=40002 && node index.js\n`);
+          process.exit(1);
+        }
+        // ::1 già coperta o non disponibile — ok
+        return;
+      }
+      if (err.code === 'EAFNOSUPPORT' || err.code === 'EADDRNOTAVAIL') {
+        return; // IPv6 non supportato
+      }
+      console.error(`[HTTP] Errore listen ${host}:`, err.message);
+    });
+  }
+}
+
+startHttpServer();

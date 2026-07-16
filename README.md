@@ -74,35 +74,38 @@ Il meta-controller può solo muoversi **dentro** questi limiti.
 
 ## Dashboard web
 
-Con il bot avviato apri:
+```bash
+npm start
+```
+
+Poi apri nel browser (usa **127.0.0.1**, non aprire il file HTML da disco):
 
 ```text
 http://127.0.0.1:40001/
 ```
 
-(o `http://127.0.0.1:40001/dashboard`)
+Se vedi **OFFLINE** / banner rosso:
 
-Mostra in tempo reale (refresh 5s):
+1. Il bot non è avviato → `npm start` nella cartella `h2bb`
+2. Porta occupata → cambia `PORT=40002` in `.env`
+3. Su Windows preferisci `127.0.0.1` a `localhost`
+4. Test rapido: `http://127.0.0.1:40001/api/ping` deve rispondere `{"ok":true,...}`
 
-- engine / LIVE·DEMO / uptime / heartbeat
-- prezzo, equity, PnL posizione, score
-- ultima decisione (reason code)
-- risk meters (giorno, drawdown, loss consecutive) + hard caps
-- performance (WR, PF, expectancy) + curva equity
-- trade recenti e event log
+Mostra in tempo reale (refresh 5s): engine, prezzo, equity, decisione (reason code), risk meters, performance + curva equity, trade, eventi.
 
-API aggregate:
+API:
 
 ```text
-GET /api/dashboard   — snapshot completo per la UI
-GET /api/trades      — trade (jsonl)
-GET /api/events      — eventi
-GET /api/performance — stats
-GET /health          — health check
-GET /status          — status classico
+GET /api/ping        — ping istantaneo
+GET /api/dashboard   — snapshot UI
+GET /api/trades
+GET /api/events
+GET /api/performance
+GET /health
+GET /status
 ```
 
-Bind: di default solo `127.0.0.1`. Per esporre in LAN: `HOST=0.0.0.0` (usa con cautela).
+Bind default: `127.0.0.1` + `::1`. LAN: `HOST=0.0.0.0` (con cautela).
 
 ## Chat / Telegram (intent)
 

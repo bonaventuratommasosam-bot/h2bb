@@ -3,8 +3,27 @@
   const REFRESH_MS = 5000;
   let timer = null;
   let lastOk = false;
+  let failCount = 0;
 
   const $ = (id) => document.getElementById(id);
+
+  function showBanner(html, kind = 'bad') {
+    let el = document.getElementById('error-banner');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'error-banner';
+      el.className = 'error-banner';
+      document.body.prepend(el);
+    }
+    el.className = `error-banner ${kind}`;
+    el.innerHTML = html;
+    el.hidden = !html;
+  }
+
+  function hideBanner() {
+    const el = document.getElementById('error-banner');
+    if (el) el.hidden = true;
+  }
 
   function fmtMoney(n, digits = 2) {
     if (n == null || Number.isNaN(n)) return '—';
@@ -368,21 +387,50 @@
   function renderError(err) {
     setPill($('conn'), 'offline', 'pill-bad');
     lastOk = false;
+    failCount += 1;
     $('kpi-engine').textContent = 'OFFLINE';
     $('kpi-engine').className = 'kpi-value bad';
     $('kpi-engine-sub').textContent = err || 'API non raggiungibile';
     $('last-fetch').textContent = `errore · ${fmtTime(Date.now())}`;
+
+    const port = location.port || '40001';
+    showBanner(
+      `<strong>Bot non raggiungibile</strong> — ${err || 'fetch failed'}<br/>
+       1. Avvia il bot: <code>cd h2bb && npm start</code><br/>
+       2. Apri <code>http://127.0.0.1:${port}/</code> (meglio di <code>localhost</code> su Windows)<br/>
+       3. Non aprire il file HTML da disco (<code>file://</code>) — serve il server Node<br/>
+       4. Verifica: <code>http://127.0.0.1:${port}/api/ping</code>`,
+      'bad'
+    );
   }
 
   async function fetchDashboard() {
+    // file:// non può chiamare l'API
+    if (location.protocol === 'file:') {
+      renderError('pagina aperta come file://');
+      showBanner(
+        `<strong>Apri la dashboard dal bot, non dal file.</strong><br/>
+         Esegui <code>npm start</code> nella cartella h2bb, poi vai su
+         <code>http://127.0.0.1:40001/</code>`,
+        'bad'
+      );
+      return;
+    }
+
     try {
-      const res = await fetch('/api/dashboard', { cache: 'no-store' });
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 8000);
+      const res = await fetch('/api/dashboard', { cache: 'no-store', signal: ctrl.signal });
+      clearTimeout(t);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'payload not ok');
+      failCount = 0;
+      hideBanner();
       render(data);
     } catch (e) {
-      renderError(e.message);
+      const msg = e.name === 'AbortError' ? 'timeout API (8s)' : (e.message || String(e));
+      renderError(msg);
     }
   }
 
@@ -397,7 +445,6 @@
     fetchDashboard();
     timer = setInterval(fetchDashboard, REFRESH_MS);
     window.addEventListener('resize', () => {
-      // redraw chart on next successful payload — trigger refresh
       if (lastOk) fetchDashboard();
     });
   }

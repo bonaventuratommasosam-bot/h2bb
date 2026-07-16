@@ -1,3 +1,30 @@
+.error-banner {
+  position: relative;
+  z-index: 20;
+  margin: 0;
+  padding: 0.85rem 1.25rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  border-bottom: 1px solid var(--border);
+}
+.error-banner.bad {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #fecaca;
+}
+.error-banner.warn {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fde68a;
+}
+.error-banner code {
+  font-family: var(--mono);
+  font-size: 0.8em;
+  background: rgba(0,0,0,0.35);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+.error-banner[hidden] { display: none !important; }
+
 :root {
   --bg: #0b0f14;
   --bg2: #111820;

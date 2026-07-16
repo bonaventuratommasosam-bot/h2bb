@@ -4,9 +4,11 @@
   "description": "H2BB / Hermes — Autonomous Hyperliquid trading bot (PRO engine + shadow learning + risk-first)",
   "main": "index.js",
   "scripts": {
+    "prestart": "node scripts/ensure-config.js",
     "start": "node index.js",
     "test": "node --test --test-concurrency=1 test/*.test.js",
-    "health": "node scripts/health-monitor.js"
+    "health": "node scripts/health-monitor.js",
+    "dashboard": "node scripts/ensure-config.js && node index.js"
   },
   "engines": {
     "node": ">=18"
