@@ -16,33 +16,33 @@
 
   const $ = (id) => document.getElementById(id);
 
-  /** Map bot pair → TradingView symbol (Hyperliquid venue preferred). */
+  /** Map bot pair → TradingView symbol (ETHUSD-style spot charts). */
   function pairToTvSymbol(pair) {
     const p = String(pair || 'ETH')
       .toUpperCase()
       .replace(/-PERP|\/|USDC|USDT|USD/g, '')
       .replace(/[^A-Z0-9]/g, '');
-    // Hyperliquid perps on TradingView use PAIRUSD
-    const hl = {
-      ETH: 'HYPERLIQUID:ETHUSD',
-      BTC: 'HYPERLIQUID:BTCUSD',
-      SOL: 'HYPERLIQUID:SOLUSD',
-      ARB: 'HYPERLIQUID:ARBUSD',
-      DOGE: 'HYPERLIQUID:DOGEUSD',
-      AVAX: 'HYPERLIQUID:AVAXUSD',
-      LINK: 'HYPERLIQUID:LINKUSD',
-      OP: 'HYPERLIQUID:OPUSD',
-      HYPE: 'HYPERLIQUID:HYPEUSD',
-      SUI: 'HYPERLIQUID:SUIUSD',
-      TIA: 'HYPERLIQUID:TIAUSD',
-      WIF: 'HYPERLIQUID:WIFUSD',
-      PEPE: 'HYPERLIQUID:PEPEUSD',
-      SEI: 'HYPERLIQUID:SEIUSD',
-      NEAR: 'HYPERLIQUID:NEARUSD',
+    // Prefer COINBASE:*USD (real ETHUSD etc.) — HYPERLIQUID:*USD often missing on TV free widget
+    const usd = {
+      ETH: 'COINBASE:ETHUSD',
+      BTC: 'COINBASE:BTCUSD',
+      SOL: 'COINBASE:SOLUSD',
+      ARB: 'COINBASE:ARBUSD',
+      DOGE: 'COINBASE:DOGEUSD',
+      AVAX: 'COINBASE:AVAXUSD',
+      LINK: 'COINBASE:LINKUSD',
+      OP: 'COINBASE:OPUSD',
+      SUI: 'COINBASE:SUIUSD',
+      NEAR: 'COINBASE:NEARUSD',
+      TIA: 'COINBASE:TIAUSD',
+      PEPE: 'COINBASE:PEPEUSD',
+      WIF: 'COINBASE:WIFUSD',
+      SEI: 'COINBASE:SEIUSD',
     };
-    if (hl[p]) return hl[p];
-    // liquid fallback
-    return `BINANCE:${p}USDT`;
+    if (usd[p]) return usd[p];
+    // Default: PAIRUSD on Coinbase search format; USDT fallback for obscure alts
+    if (['HYPE'].includes(p)) return `BINANCE:${p}USDT`;
+    return `COINBASE:${p}USD`;
   }
 
   function loadTvScript() {
@@ -97,7 +97,7 @@
       return;
     }
 
-    const sym = symbol || tvSymbolCurrent || 'HYPERLIQUID:ETHUSD';
+    const sym = symbol || tvSymbolCurrent || 'COINBASE:ETHUSD';
     const iv = interval || tvInterval || '15';
     tvSymbolCurrent = sym;
     tvInterval = iv;
