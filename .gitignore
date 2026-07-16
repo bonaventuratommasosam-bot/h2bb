@@ -44,3 +44,7 @@ node_modules/
 Thumbs.db
 .idea/
 .vscode/
+
+# Runtime experiment / shadow artifacts
+strategy-experiments.json
+strategy-snapshots/
