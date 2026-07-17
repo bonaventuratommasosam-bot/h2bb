@@ -55,10 +55,15 @@ const DEFAULT_STRATEGY = {
   scannerEnabled: false,
   // AI autonomy (LLM second opinion + dynamic threshold/exit/TP). Requires API key.
   // Force off: AI_AUTONOMY=0. Force on: AI_AUTONOMY=1 + DEEPSEEK_API_KEY (or llm-provider key).
+  // aiMode: 'balanced' | 'degen' — degen = AI gestisce strategia in modo aggressivo
+  aiMode: process.env.AI_MODE || 'balanced',
   aiSignalEnabled: true,
   aiDynamicThreshold: true,
   aiExitEnabled: true,
   aiTakeProfitEnabled: true,
+  aiForceEntryEnabled: false,
+  softMacroBlock: false,
+  degenTradeInBear: false,
   active: false,
   lastTradeAt: null,
   lastSignal: null,

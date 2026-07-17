@@ -177,14 +177,20 @@ async function _runTickInternal() {
 
   if (out?.blocked) shared.riskState = riskManager.loadRiskState();
 
-  // ── AI decision layer (after TA signal, before buy execution) ──
-  if (
-    shared.strategy.mode === 'pro'
+  // ── AI decision layer: gestisce strategia ogni tick (degen) o solo su buy deferred ──
+  const { isDegenMode, getAiEnterMinConfidence } = require('../lib/ai-mode');
+  const degen = isDegenMode(shared.strategy);
+  const enterMinConf = getAiEnterMinConfidence(shared.strategy);
+  const wantAiLayer = shared.strategy.mode === 'pro'
     && shared.strategy.active
-    && out?.deferred
-    && out?.sizing
-  ) {
-    const signal = out.signal;
+    && !out?.blocked
+    && (
+      (out?.deferred && out?.sizing)
+      || (degen && out?.analysis) // degen: AI always steers strategy + may force entry
+    );
+
+  if (wantAiLayer) {
+    const signal = out.signal || { action: 'hold' };
     const analysis = out.analysis;
     const entryScore = out.entryScore
       || (analysis ? proEngine.scoreEntry(analysis, shared.strategy) : null);
@@ -212,20 +218,31 @@ async function _runTickInternal() {
       analysis, entryScore, shared.strategy, shared.riskState,
       equityNow, shared.balance, out.price ?? price, posNow
     );
+    report.aiMode = shared.strategy.aiMode || (degen ? 'degen' : 'balanced');
+    report.enterMinConfidence = enterMinConf;
 
-    const aiDecision = await conversationAgent.evaluateDecision(report);
+    const aiDecision = await conversationAgent.evaluateDecision(report, shared.strategy);
 
-    // Apply strategyChanges (null = skip) — clamp min score to operator base ± lift
+    // Apply strategyChanges — AI owns params within hard caps + score clamp
     if (aiDecision.strategyChanges) {
       const { clampAiMinScore, lockOperatorMinScore } = require('../lib/ai-autonomy');
+      const { sanitizeStrategy } = require('../lib/sanitize-strategy');
       lockOperatorMinScore(shared.strategy);
       let patched = false;
+      const patchable = [
+        'minConfidenceScore', 'rsiOversold', 'rsiOverbought',
+        'atrStopMultiplier', 'riskPerTradePercent', 'maxPositionPercent',
+      ];
       for (const [k, v] of Object.entries(aiDecision.strategyChanges)) {
-        if (v == null || shared.strategy[k] === undefined) continue;
+        if (v == null) continue;
+        if (!patchable.includes(k) && shared.strategy[k] === undefined) continue;
         let val = Number(v);
         if (!Number.isFinite(val)) continue;
         if (k === 'riskPerTradePercent') {
           val = Math.max(0.1, Math.min(parseFloat(process.env.HARD_CAP_RISK_PER_TRADE) || 1.0, val));
+        }
+        if (k === 'maxPositionPercent') {
+          val = Math.max(5, Math.min(parseFloat(process.env.HARD_CAP_MAX_POSITION) || 25, val));
         }
         if (k === 'minConfidenceScore') {
           val = clampAiMinScore(val, shared.strategy);
@@ -236,7 +253,8 @@ async function _runTickInternal() {
         }
       }
       if (patched) {
-        console.log(`[AI-DECISION] strategy patched — ${aiDecision.reason}`);
+        shared.strategy = sanitizeStrategy(shared.strategy);
+        console.log(`[AI-DECISION] strategy patched (mode=${shared.strategy.aiMode}) — ${aiDecision.reason}`);
       }
     }
 
@@ -254,7 +272,7 @@ async function _runTickInternal() {
     } else if (signal.action === 'buy' || signal.action === 'add') {
       const conf = aiDecision.confidence ?? 0;
       const approved = aiDecision.entryOverride?.approved !== false;
-      const enterOk = aiDecision.decision === 'enter' && conf >= 80 && approved;
+      const enterOk = aiDecision.decision === 'enter' && conf >= enterMinConf && approved;
 
       if (aiDecision.decision === 'ta_fallback') {
         console.log(`[AI-DECISION] ta_fallback — eseguo buy TA`);
@@ -268,8 +286,8 @@ async function _runTickInternal() {
           shared.strategy.scaleInPending = false;
           if (res.trade) notifyOwner(null, null, res.trade, signal);
         }
-      } else if (enterOk) {
-        console.log(`[AI-DECISION] ENTER conf=${conf} — ${aiDecision.reason}`);
+      } else if (enterOk && out.sizing?.amount) {
+        console.log(`[AI-DECISION] ENTER conf=${conf}≥${enterMinConf} — ${aiDecision.reason}`);
         const res = await executeMarketBuy(shared.strategy.pair, out.sizing.amount);
         if (res.ok) {
           shared.strategy.lastTradeAt = Date.now();
@@ -283,11 +301,55 @@ async function _runTickInternal() {
           console.log(`[AI-DECISION] Buy fallito: ${res.error}`);
         }
       } else {
-        console.log(`[AI-DECISION] SKIP buy decision=${aiDecision.decision} conf=${conf} — ${aiDecision.reason}`);
+        console.log(`[AI-DECISION] SKIP buy decision=${aiDecision.decision} conf=${conf} (need≥${enterMinConf}) — ${aiDecision.reason}`);
         shared.strategy.lastSignal = { action: 'hold', reason: `AI ${aiDecision.decision}: ${aiDecision.reason}`, score: conf };
       }
+    } else if (
+      degen
+      && shared.strategy.aiForceEntryEnabled !== false
+      && aiDecision.decision === 'enter'
+      && (aiDecision.confidence ?? 0) >= enterMinConf
+      && aiDecision.entryOverride?.approved !== false
+      && Math.abs(posNow) < 1e-9
+      && riskManager.checkCanTrade(shared.strategy, shared.riskState, equityNow).allowed
+    ) {
+      // Degen: AI may force entry even when TA said hold (soft macro / score near threshold)
+      try {
+        const px = out.price ?? price;
+        const sizing = riskManager.computeBudgetOrderSize({
+          equity: equityNow,
+          cash: shared.balance?.amount ?? equityNow,
+          price: px,
+          strategy: shared.strategy,
+          entryScore: entryScore || { score: aiDecision.confidence },
+        });
+        if (sizing.amount > 0 && sizing.usd >= (parseFloat(process.env.MIN_NOTIONAL_USD) || 11)) {
+          console.log(`[AI-DECISION] DEGEN FORCE ENTER conf=${aiDecision.confidence} size=${sizing.amount.toFixed(4)} — ${aiDecision.reason}`);
+          const res = await executeMarketBuy(shared.strategy.pair, sizing.amount);
+          if (res.ok) {
+            shared.strategy.lastTradeAt = Date.now();
+            shared.strategy.lastSignal = {
+              action: 'buy',
+              reason: `AI degen force: ${aiDecision.reason}`,
+              score: aiDecision.confidence,
+              reasonCode: 'ai_degen_enter',
+            };
+            shared.strategy.tp1Taken = false;
+            shared.strategy.trailingPeak = px;
+            shared.strategy.positionLeg = 'full';
+            shared.strategy.scaleInPending = false;
+            if (res.trade) notifyOwner(null, null, res.trade, shared.strategy.lastSignal);
+          } else {
+            console.log(`[AI-DECISION] Degen buy fallito: ${res.error}`);
+          }
+        } else {
+          console.log(`[AI-DECISION] Degen enter skip size: ${sizing.reason || 'insufficient'}`);
+        }
+      } catch (e) {
+        console.error('[AI-DECISION] degen force enter:', e.message);
+      }
     } else if (aiDecision.decision === 'adapt' || aiDecision.decision === 'hold') {
-      console.log(`[AI-DECISION] ${aiDecision.decision} — ${aiDecision.reason}`);
+      console.log(`[AI-DECISION] ${aiDecision.decision} conf=${aiDecision.confidence} — ${aiDecision.reason}`);
     }
   }
 

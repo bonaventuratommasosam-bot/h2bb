@@ -238,6 +238,7 @@ function normalizeDecision(obj) {
       rsiOverbought: sc.rsiOverbought != null ? Number(sc.rsiOverbought) : null,
       atrStopMultiplier: sc.atrStopMultiplier != null ? Number(sc.atrStopMultiplier) : null,
       riskPerTradePercent: sc.riskPerTradePercent != null ? Number(sc.riskPerTradePercent) : null,
+      maxPositionPercent: sc.maxPositionPercent != null ? Number(sc.maxPositionPercent) : null,
     },
     entryOverride: {
       approved: obj.entryOverride?.approved !== false,
@@ -254,20 +255,34 @@ function normalizeDecision(obj) {
  * LLM decision agent — called every tick when TA wants to enter.
  * @param {object} contextReport from proEngine.getContextReport(...)
  */
-async function evaluateDecision(contextReport) {
+async function evaluateDecision(contextReport, strategy = {}) {
   const cfg = llmProvider.resolveConfig();
   if (!cfg.enabled) {
     return { ...AI_DECISION_FALLBACK, reason: 'Nessuna API key LLM — TA fallback' };
   }
 
-  const system = `Sei Hermes, trader senior in italiano. Leggi il report multi-timeframe e decidi autonomamente.
+  let degenExtra = '';
+  let enterHint = 'Se confidente >80 entra subito (decision=enter), se 60-80 aspetta (hold/adapt), se <60 rifiuta (hold).';
+  let temperature = 0.3;
+  try {
+    const { isDegenMode, getAiEnterMinConfidence, degenSystemPromptExtra } = require('./lib/ai-mode');
+    if (isDegenMode(strategy) || contextReport?.aiMode === 'degen') {
+      degenExtra = '\n' + degenSystemPromptExtra();
+      const em = getAiEnterMinConfidence(strategy);
+      enterHint = `MODALITÀ DEGEN: se confidente ≥${em} usa decision=enter (non restare in hold eterno). Preferisci adapt/enter a hold.`;
+      temperature = 0.55;
+    }
+  } catch { /* optional */ }
+
+  const system = `Sei Hermes, trader AI autonomo in italiano. TU gestisci la strategia: legi il report e decidi.
 Puoi modificare parametri strategia (solo i campi in strategyChanges, null = non toccare).
-Se confidente >80 entra subito (decision=enter), se 60-80 aspetta (hold/adapt), se <60 rifiuta (hold).
+${enterHint}
 decision=exit solo se posizione aperta e serve uscire.
-decision=adapt per cambiare parametri senza entrare.
+decision=adapt per cambiare parametri senza entrare (usa spesso: sei il risk/strategy manager).
+${degenExtra}
 Rispondi SOLO con JSON valido, niente markdown, niente testo fuori dal JSON.
 Schema:
-{"decision":"adapt|enter|exit|hold","reason":"max 2 frasi italiano","confidence":0-100,"strategyChanges":{"minConfidenceScore":null,"rsiOversold":null,"rsiOverbought":null,"atrStopMultiplier":null,"riskPerTradePercent":null},"entryOverride":{"approved":true,"reason":null},"exitOverride":{"force":false,"reason":null}}`;
+{"decision":"adapt|enter|exit|hold","reason":"max 2 frasi italiano","confidence":0-100,"strategyChanges":{"minConfidenceScore":null,"rsiOversold":null,"rsiOverbought":null,"atrStopMultiplier":null,"riskPerTradePercent":null,"maxPositionPercent":null},"entryOverride":{"approved":true,"reason":null},"exitOverride":{"force":false,"reason":null}}`;
 
   const user = `Report trading (JSON):\n${JSON.stringify(contextReport)}`;
 
@@ -281,8 +296,8 @@ Schema:
       timeout: AI_DECISION_TIMEOUT_MS,
     }, {
       model: cfg.model,
-      temperature: 0.3,
-      max_tokens: 250,
+      temperature,
+      max_tokens: 280,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },

@@ -149,15 +149,24 @@ function scoreEntry(analysis, strategy = {}) {
   const baseMin = strategy.minConfidenceScore ?? 65;
   const effectiveMin = ind.dynamicMinScore(baseMin, regime, macro.ok ? macro.trend : 'neutral');
 
+  // Macro bearish: hard block in balanced mode; soft penalty in degen (AI can still trade bounces)
+  const softMacro = strategy.softMacroBlock === true
+    || strategy.aiMode === 'degen'
+    || strategy.aiMode === 'aggressive';
   if (macro.ok && macro.trend === 'bearish' && macro.adx > 25) {
-    return {
-      score: 0,
-      signals: ['macro bearish forte'],
-      bias: 'blocked',
-      regime,
-      effectiveMin,
-      reasonCode: REASON.BLOCKED_MACRO_BEAR,
-    };
+    if (!softMacro) {
+      return {
+        score: 0,
+        signals: ['macro bearish forte'],
+        bias: 'blocked',
+        regime,
+        effectiveMin,
+        reasonCode: REASON.BLOCKED_MACRO_BEAR,
+      };
+    }
+    // Degen: penalize but do not zero-out the entire setup
+    score -= 18;
+    signals.push('macro bearish (soft −18)');
   }
 
   const maxFunding = strategy.maxFundingRate ?? 0.00005;

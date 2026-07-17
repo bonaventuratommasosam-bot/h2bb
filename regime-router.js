@@ -95,9 +95,12 @@ function classifyRegime(analysis, strategy) {
  * Mappa regime → aggiustamenti strategia.
  * Ritorna { mode, adjustments } da applicare.
  */
-function regimeAdjustments(classification, strategy) {
+function regimeAdjustments(classification, strategy = {}) {
   const now = Date.now();
   const prevRegime = routerState.currentRegime;
+  const degenBear = strategy.degenTradeInBear === true
+    || strategy.aiMode === 'degen'
+    || strategy.aiMode === 'aggressive';
 
   switch (classification.regime) {
     case 'bull':
@@ -113,6 +116,19 @@ function regimeAdjustments(classification, strategy) {
       };
 
     case 'bear':
+      // Degen: trade with reduced size instead of hard flat (AI owns aggression)
+      if (degenBear) {
+        return {
+          mode: 'reduce',
+          flat: false,
+          adjustments: {
+            scoreBoost: 8,
+            sizeMultiplier: 0.55,
+            tpMultiplier: 1.2,
+            reason: `Bear degen — size ridotta · ${classification.reasons.join(', ')}`,
+          },
+        };
+      }
       routerState.consecutiveFlatTicks++;
       return {
         mode: 'flat',
