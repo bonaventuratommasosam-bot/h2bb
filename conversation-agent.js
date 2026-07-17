@@ -286,9 +286,11 @@ async function evaluateDecision(contextReport, strategy = {}) {
     } else if (isDegenMode(strategy) || mode === 'degen' || mode === 'super_degen') {
       degenExtra = '\n' + degenSystemPromptExtra(strategy);
       const em = getAiEnterMinConfidence(strategy);
-      const label = isSuperDegenMode(strategy) || mode === 'super_degen' ? 'SUPER DEGEN' : 'DEGEN';
-      enterHint = `MODALITÀ ${label}: conf≥${em} → enter/add. Preferisci enter/add/adapt a hold.`;
-      temperature = isSuperDegenMode(strategy) || mode === 'super_degen' ? 0.7 : 0.55;
+      const label = isSuperDegenMode(strategy) || mode === 'super_degen' ? 'SUPER DEGEN' : 'DEGEN+CAPITALE';
+      enterHint = isSuperDegenMode(strategy)
+        ? `MODALITÀ ${label}: conf≥${em} → enter/add. Preferisci enter/add.`
+        : `MODALITÀ ${label}: conf≥${em} enter; add SOLO se già in profitto; exit se va bankato il gain. Proteggi capitale.`;
+      temperature = isSuperDegenMode(strategy) || mode === 'super_degen' ? 0.7 : 0.5;
     }
   } catch { /* optional */ }
 
