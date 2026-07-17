@@ -125,6 +125,56 @@ async function runProactiveCheck() {
   }
 }
 
+/**
+ * If user opened a position manually (or pair drifted), sync strategy to manage it:
+ * pair, absolute TP/SL from entry, trailing reset.
+ */
+async function adoptOpenPositionIfNeeded(position, price) {
+  try {
+    if (!position || Math.abs(position) < 1e-9) return;
+    const entryPx = await getEntryPrice(shared.strategy.pair);
+    if (!(entryPx > 0) || !(price > 0)) return;
+
+    const tpPct = Number(shared.strategy.takeProfitPercent) || 2.5;
+    const slPct = Number(shared.strategy.stopLossPercent) || 1.5;
+    const wantTp = Math.round(entryPx * (1 + tpPct / 100) * 100) / 100;
+    const wantSl = Math.round(entryPx * (1 - slPct / 100) * 100) / 100;
+    let patched = false;
+
+    // Refresh TP/SL if missing or far from this entry (manual open / re-entry)
+    const tp = Number(shared.strategy.takeProfit);
+    if (!tp || Math.abs(tp - wantTp) / wantTp > 0.01) {
+      shared.strategy.takeProfit = wantTp;
+      shared.strategy.takeProfitPercent = tpPct;
+      patched = true;
+    }
+    const sl = Number(shared.strategy.stopLoss);
+    if (!sl || Math.abs(sl - wantSl) / wantSl > 0.01) {
+      shared.strategy.stopLoss = wantSl;
+      shared.strategy.stopLossPercent = slPct;
+      patched = true;
+    }
+    if (shared.strategy.positionLeg == null) {
+      shared.strategy.positionLeg = 'full';
+      patched = true;
+    }
+    // Ensure exit AI on for management
+    if (shared.strategy.aiExitEnabled === false) {
+      shared.strategy.aiExitEnabled = true;
+      patched = true;
+    }
+    if (patched) {
+      console.log(
+        `[ADOPT] Managing open ${shared.strategy.pair} size=${position} entry=${entryPx} `
+        + `TP=${shared.strategy.takeProfit} SL=${shared.strategy.stopLoss}`
+      );
+      try { require('../state/strategy').saveStrategy(); } catch { /* ignore */ }
+    }
+  } catch (e) {
+    console.error('[ADOPT]', e.message);
+  }
+}
+
 async function _runTickInternal() {
   if (!shared.strategy.active) return;
 
@@ -133,6 +183,10 @@ async function _runTickInternal() {
   // Sticky CB stays until new day (daily) or explicit operator resume (drawdown).
 
   const price = await getPrice(shared.strategy.pair);
+  // Always manage open HL positions (manual or bot) with TP/SL/exit AI
+  if (Math.abs(position) > 1e-9) {
+    await adoptOpenPositionIfNeeded(position, price);
+  }
   if (shared.strategy.stopLoss && price < shared.strategy.stopLoss) {
     console.log(`[STOP-LOSS] ${shared.strategy.pair} @ ${price} < ${shared.strategy.stopLoss}`);
     const slRes = await executeMarketSell(shared.strategy.pair, 1);

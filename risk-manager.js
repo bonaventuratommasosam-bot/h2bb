@@ -104,18 +104,25 @@ function checkCanTrade(strategy, state, equity) {
     return { allowed: false, state: s, reasons: [`cooldown dopo perdite (${mins} min rimasti)`] };
   }
 
-  // Hard caps: non superare mai i ceiling di sicurezza anche se strategy è più larga
-  const maxDaily = Math.min(strategy.maxDailyLossPercent ?? 2, HARD_CAPS.maxDailyLossPercent);
+  // Daily loss CB — disabled when maxDailyLossPercent <= 0 or DISABLE_DAILY_LOSS_CB=1
+  const dailyDisabled = process.env.DISABLE_DAILY_LOSS_CB === '1'
+    || process.env.DISABLE_DAILY_LOSS_CB === 'true'
+    || strategy.disableDailyLossLimit === true
+    || Number(strategy.maxDailyLossPercent) <= 0;
   if (s.dayStartEquity > 0) {
-    const dayLossPct = ((equity - s.dayStartEquity) / s.dayStartEquity) * 100;
     s.dayPnl = equity - s.dayStartEquity;
-    if (dayLossPct <= -maxDaily) {
-      s.circuitBreaker = true;
-      s.stickyKind = 'daily';
-      s.circuitReason = `perdita giornaliera ${dayLossPct.toFixed(2)}% (limite -${maxDaily}%)`;
-      // FIX BUG1: NON salvare qui — lo stato è ritornato e il chiamante
-      // (pro-engine/autonomous-engine) fa saveRiskState. Evita doppia write.
-      return { allowed: false, state: s, reasons: [s.circuitReason] };
+    if (!dailyDisabled) {
+      const maxDaily = Math.min(
+        strategy.maxDailyLossPercent ?? 2,
+        HARD_CAPS.maxDailyLossPercent
+      );
+      const dayLossPct = ((equity - s.dayStartEquity) / s.dayStartEquity) * 100;
+      if (maxDaily > 0 && dayLossPct <= -maxDaily) {
+        s.circuitBreaker = true;
+        s.stickyKind = 'daily';
+        s.circuitReason = `perdita giornaliera ${dayLossPct.toFixed(2)}% (limite -${maxDaily}%)`;
+        return { allowed: false, state: s, reasons: [s.circuitReason] };
+      }
     }
   }
 
