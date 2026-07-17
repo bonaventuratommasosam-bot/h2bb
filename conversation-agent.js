@@ -137,20 +137,36 @@ async function llmChat(text, history, context) {
   const cfg = llmProvider.resolveConfig();
   if (!cfg.enabled) return null;
 
+  const aiLine = context.aiAutonomy
+    ? `AI autonomy ON (entry veto/boost, soglia dinamica, exit, TP) — hard caps sempre vincono`
+    : `AI autonomy OFF (solo score quant + risk)`;
+  const lastAi = context.lastAi
+    ? `Ultimo AI: ${context.lastAi.bias} conf ${context.lastAi.confidence} — ${context.lastAi.reasoning || ''}`
+    : 'Ultimo AI: n/d (nessun secondo parere recente in lastDecision)';
+  const sticky = context.stickyKind
+    ? `Sticky CB: ${context.stickyKind} (daily=clear a mezzanotte UTC; drawdown=serve resume operatore)`
+    : 'Sticky CB: no';
+
   const system = `${getPersona()}
 
-Contesto live:
+Contesto live (stato REALE del bot — usalo se l'utente chiede di AI, strategia, risk, modifiche):
 - Pair: ${context.pair} @ $${context.price ?? '?'}
-- Modalita: ${context.mode} | Bot: ${context.active ? 'attivo' : 'pausa'}
-- Score: ${context.score ?? 'n/d'}/${context.effectiveMin ?? 65} | Regime: ${context.regime ?? 'n/d'}
-- RSI: ${context.rsi ?? 'n/d'} | Ultimo segnale: ${context.lastSignal || 'nessuno'}
+- Modalita: ${context.mode} | Bot: ${context.active ? 'attivo' : 'pausa'} | Operativo: ${context.operational ? 'si' : 'no'}
+- Score: ${context.score ?? 'n/d'}/${context.effectiveMin ?? 65} (base min ${context.baseMinScore ?? 'n/d'}) | Regime: ${context.regime ?? 'n/d'}
+- RSI: ${context.rsi ?? 'n/d'} | Azione: ${context.lastDecisionAction || 'n/d'} | Code: ${context.lastReasonCode || 'n/d'}
+- Ultimo segnale: ${context.lastSignal || 'nessuno'}
 - Posizione: ${context.hasPosition ? 'aperta' : 'flat'} | Live: ${context.live ? 'si' : 'no'}
-- Risk: ${context.circuitBreaker ? `CIRCUIT BREAKER — ${context.circuitReason || 'attivo'}` : (context.riskBlocked ? 'cooldown attivo' : 'ok')}
-- Operativo: ${context.operational ? 'si (posso tradare)' : (context.active ? 'no (bloccato risk)' : 'no (pausa)')}
+- Risk: ${context.circuitBreaker ? `CIRCUIT BREAKER — ${context.circuitReason || 'attivo'}` : (context.riskBlocked ? 'cooldown' : 'ok')}
+- ${sticky}
+- Risk/trade: ${context.riskPerTradePercent ?? '?'}% | Max pos: ${context.maxPositionPercent ?? '?'}%
+- Meta mode: ${context.metaMode || 'n/d'}
+- ${aiLine}
+- ${lastAi}
 
+Se chiedono "sei autonomo" / "cosa e' cambiato" / "AI": spiega autonomy, sticky CB, meta, senza inventare numeri non in contesto.
 Se l'utente chiede un'azione (compra, vendi, pausa, analisi), rispondi in JSON:
 {"intent":"...","cmd":"comando engine se serve","reply":"risposta naturale"}
-Altrimenti rispondi solo con testo naturale in italiano, max 4 frasi, proattivo.`;
+Altrimenti rispondi solo con testo naturale in italiano, max 5 frasi, proattivo.`;
 
   const messages = [
     { role: 'system', content: system },
@@ -211,10 +227,20 @@ function intelligentReply(text, context) {
       (hasPosition ? 'La posizione è monitorata con stop ATR e trailing.' : 'Non sono esposto adesso.') +
       `\nVuoi che mi fermi? Scrivi *pausa* — o *rischio* per i dettagli.`;
   }
-  if (/intelligen|autonom|pens|decid|solo comandi/.test(t)) {
-    return `Osservo ${pair} ogni 45 secondi su 3 timeframe (4h/1h/15m) — non sono un menu di comandi.\n\n` +
-      `Adesso: $${price?.toFixed(2) ?? '?'}, score *${score ?? 'n/d'}*, regime *${regime || 'n/d'}*. ` +
-      (operational ? 'Sono operativo — ti scrivo quando cambia qualcosa.' : (active ? 'Attivo ma bloccato dal risk manager.' : 'In pausa.'));
+  if (/intelligen|autonom|pens|decid|solo comandi|modific|ai\b|intelligenza/.test(t)) {
+    const ai = context.aiAutonomy
+      ? 'Layer *AI autonomy ON*: veto/boost entry, soglia dinamica, exit e TP (hard caps vincono).'
+      : 'Layer AI autonomy *OFF* — decido con score quant + risk.';
+    const meta = context.metaMode ? ` Meta mode: *${context.metaMode}*.` : '';
+    const sticky = context.stickyKind ? ` CB sticky: *${context.stickyKind}*.` : '';
+    const lastAi = context.lastAi
+      ? `\nUltimo AI: ${context.lastAi.bias} (${context.lastAi.confidence}) — ${context.lastAi.reasoning || ''}`
+      : '';
+    return `Osservo ${pair} ogni ~45s su 4h/1h/15m.\n\n` +
+      `${ai}${meta}${sticky}\n` +
+      `Adesso: $${price?.toFixed(2) ?? '?'}, score *${score ?? 'n/d'}*/${context.effectiveMin ?? 65}, regime *${regime || 'n/d'}*. ` +
+      (operational ? 'Operativo.' : (active ? 'Attivo ma bloccato dal risk.' : 'In pausa.')) +
+      lastAi;
   }
   if (/live|veri|soldi/.test(t)) {
     return mode === 'live'
