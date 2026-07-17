@@ -21,7 +21,7 @@ Object.assign(s, {
   minConfidenceScore: 40,
   operatorMinConfidenceScore: 40,
   riskPerTradePercent: 2.5,
-  maxPositionPercent: 50,
+  maxPositionPercent: 80,
   consecutiveLossLimit: 6,
   lossCooldownMinutes: 15,
   cashReservePercent: 0,
