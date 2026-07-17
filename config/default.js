@@ -12,7 +12,8 @@ const BALANCE_FILE  = path.join(DATA_DIR, 'balance.json');
 
 const HL_API_HOST = 'api.hyperliquid.xyz';
 const HL_TIMEOUT_MS = parseInt(process.env.HL_TIMEOUT_MS, 10) || 10000;
-const MIN_NOTIONAL_USD = parseFloat(process.env.MIN_NOTIONAL_USD) || 10;
+// HL rejects at exactly $10 after rounding — use buffer (override via env)
+const MIN_NOTIONAL_USD = parseFloat(process.env.MIN_NOTIONAL_USD) || 11;
 const PORT = parseInt(process.env.PORT, 10) || 40001;
 const PROACTIVE_INTERVAL_MS = (parseInt(process.env.PROACTIVE_CHECK_MINUTES, 10) || 20) * 60_000;
 
@@ -40,6 +41,8 @@ const DEFAULT_STRATEGY = {
   consecutiveLossLimit: 3,
   lossCooldownMinutes: 240,
   minConfidenceScore: 65,
+  /** Locked baseline for AI/self-learn clamp (set on first load if missing). */
+  operatorMinConfidenceScore: null,
   atrStopMultiplier: 2,
   atrTrailMultiplier: 1,
   atrTp1Multiplier: 2,

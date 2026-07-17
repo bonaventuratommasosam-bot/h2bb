@@ -27,26 +27,38 @@ function suggestTuning(analysis, entryScore, strategy = {}) {
   const suggestions = {};
   const notes = [];
 
-  if (regime === 'trending' || (adx > 25 && (macro.trend === 'bullish' || entry.trend === 'bullish'))) {
-    // Trend: slightly lower entry bar, wider stop
-    suggestions.minConfidenceScore = clamp(
-      'minConfidenceScore',
-      (strategy.minConfidenceScore ?? 65) - 3
-    );
-    suggestions.atrStopMultiplier = clamp(
-      'atrStopMultiplier',
-      (strategy.atrStopMultiplier ?? 2) + 0.2
-    );
-    notes.push('regime trending → soglia -3, stop ATR +0.2');
-  } else if (regime === 'ranging' || regime === 'mean-reversion' || adx < 18) {
-    suggestions.minConfidenceScore = clamp(
-      'minConfidenceScore',
-      (strategy.minConfidenceScore ?? 65) + 5
-    );
-    suggestions.rsiOversold = clamp('rsiOversold', Math.min(strategy.rsiOversold ?? 35, 32));
-    notes.push('regime ranging → soglia +5, RSI oversold più stretto');
-  } else {
-    notes.push('regime mixed → nessun tune aggressivo');
+  // Use operator base so self-learn cannot ratchet score forever
+  let baseMin = strategy.operatorMinConfidenceScore ?? strategy.minConfidenceScore ?? 65;
+  try {
+    const { clampAiMinScore, lockOperatorMinScore } = require('./lib/ai-autonomy');
+    lockOperatorMinScore(strategy);
+    baseMin = strategy.operatorMinConfidenceScore ?? baseMin;
+    if (regime === 'trending' || (adx > 25 && (macro.trend === 'bullish' || entry.trend === 'bullish'))) {
+      suggestions.minConfidenceScore = clampAiMinScore(baseMin - 3, strategy);
+      suggestions.atrStopMultiplier = clamp(
+        'atrStopMultiplier',
+        (strategy.atrStopMultiplier ?? 2) + 0.2
+      );
+      notes.push('regime trending → soglia -3 (capped), stop ATR +0.2');
+    } else if (regime === 'ranging' || regime === 'mean-reversion' || adx < 18) {
+      suggestions.minConfidenceScore = clampAiMinScore(baseMin + 5, strategy);
+      suggestions.rsiOversold = clamp('rsiOversold', Math.min(strategy.rsiOversold ?? 35, 32));
+      notes.push('regime ranging → soglia +5 (capped), RSI oversold più stretto');
+    } else {
+      notes.push('regime mixed → nessun tune aggressivo');
+    }
+  } catch {
+    if (regime === 'trending' || (adx > 25 && (macro.trend === 'bullish' || entry.trend === 'bullish'))) {
+      suggestions.minConfidenceScore = clamp('minConfidenceScore', baseMin - 3);
+      suggestions.atrStopMultiplier = clamp('atrStopMultiplier', (strategy.atrStopMultiplier ?? 2) + 0.2);
+      notes.push('regime trending → soglia -3, stop ATR +0.2');
+    } else if (regime === 'ranging' || regime === 'mean-reversion' || adx < 18) {
+      suggestions.minConfidenceScore = clamp('minConfidenceScore', baseMin + 5);
+      suggestions.rsiOversold = clamp('rsiOversold', Math.min(strategy.rsiOversold ?? 35, 32));
+      notes.push('regime ranging → soglia +5, RSI oversold più stretto');
+    } else {
+      notes.push('regime mixed → nessun tune aggressivo');
+    }
   }
 
   if (entryScore?.score != null && entryScore.score < 40) {

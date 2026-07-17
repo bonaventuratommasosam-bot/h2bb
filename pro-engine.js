@@ -12,7 +12,13 @@ const metaController = require('./meta-controller');
 const eventLog = require('./event-log');
 const { REASON, inferReasonCode } = require('./lib/reason-codes');
 const { MIN_NOTIONAL_USD } = require('./config/default');
-const { isAiAutonomyEnabled, ensureAiStrategyFlags } = require('./lib/ai-autonomy');
+const {
+  isAiAutonomyEnabled,
+  ensureAiStrategyFlags,
+  clampAiMinScore,
+  lockOperatorMinScore,
+  AI_MIN_SCORE_MAX_LIFT,
+} = require('./lib/ai-autonomy');
 const { applyStrategyPatch } = require('./lib/strategy-store');
 const { applyHardCaps } = require('./lib/hard-caps');
 const { sanitizeStrategy } = require('./lib/sanitize-strategy');
@@ -440,9 +446,10 @@ async function runTick(ctx) {
           profitFactor: fb.profitFactor,
         });
         if (newThreshold?.threshold != null) {
+          lockOperatorMinScore(strategy);
           const prev = strategy.minConfidenceScore;
-          // Clamp via hard caps / sanitize
-          const next = Math.round(Number(newThreshold.threshold));
+          // Cap lift: operator base ± lift/drop (prevents ratchet to 85)
+          const next = clampAiMinScore(newThreshold.threshold, strategy);
           applyStrategyPatch(
             { minConfidenceScore: next },
             {
@@ -451,28 +458,38 @@ async function runTick(ctx) {
               persist: true,
             }
           );
-          // Re-sync local refs after patch (strategy is shared.strategy)
-          minScore = Math.max(minScore, strategy.minConfidenceScore ?? next);
-          // Re-apply regime boost on top of AI base
+          // Regime boost only within absolute 85, still relative to clamped base
           if (regimeDecision.adjustments?.scoreBoost) {
             minScore = Math.min(85, (strategy.minConfidenceScore ?? next) + regimeDecision.adjustments.scoreBoost);
           } else {
             minScore = strategy.minConfidenceScore ?? next;
           }
           entryScore.effectiveMin = minScore;
-          onLog(`[AI-THRESHOLD] ${prev} → ${strategy.minConfidenceScore} — ${newThreshold.reasoning || ''}`);
+          onLog(
+            `[AI-THRESHOLD] ${prev} → ${strategy.minConfidenceScore} `
+            + `(base ${strategy.operatorMinConfidenceScore}, cap +${AI_MIN_SCORE_MAX_LIFT}) `
+            + `— ${newThreshold.reasoning || ''}`
+          );
         }
       } catch (err) {
         onLog(`[AI-THRESHOLD] skip: ${err?.message || err}`);
       }
     }
 
-    // ── AI autonomy: entry second opinion (veto / boost) ──
-    // Call when near threshold (watch or long), not only after full pass — autonomy needs veto power
+    // ── Entry second opinion DISABLED when deferExecution (single path) ──
+    // Sole entry judge = conversationAgent.evaluateDecision in tick-runner.
+    // Optional legacy: strategy.aiEntrySecondOpinion === true
     const nearEntry = entryScore.bias === 'long'
       || entryScore.bias === 'watch'
       || (entryScore.score != null && entryScore.score >= (minScore - 12));
-    if (aiOn && nearEntry && !hasPosition && entryScore.bias !== 'blocked') {
+    if (
+      aiOn
+      && strategy.aiEntrySecondOpinion === true
+      && !ctx.deferExecution
+      && nearEntry
+      && !hasPosition
+      && entryScore.bias !== 'blocked'
+    ) {
       try {
         const e = analysis.entry;
         const aiResult = await aiSignal.evaluate({
@@ -504,7 +521,6 @@ async function runTick(ctx) {
         if (aiResult) {
           entryScore.ai = aiResult;
           if (aiResult.bias === 'bearish' && aiResult.confidence >= 45) {
-            // Hard veto: AI disagrees with long — do not enter this tick
             entryScore.bias = 'wait';
             entryScore.score = Math.min(entryScore.score, minScore - 1);
             entryScore.signals.push(`AI-VETO (${aiResult.confidence}): ${aiResult.reasoning}`);

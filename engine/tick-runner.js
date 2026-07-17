@@ -215,8 +215,10 @@ async function _runTickInternal() {
 
     const aiDecision = await conversationAgent.evaluateDecision(report);
 
-    // Apply strategyChanges (null = skip)
+    // Apply strategyChanges (null = skip) — clamp min score to operator base ± lift
     if (aiDecision.strategyChanges) {
+      const { clampAiMinScore, lockOperatorMinScore } = require('../lib/ai-autonomy');
+      lockOperatorMinScore(shared.strategy);
       let patched = false;
       for (const [k, v] of Object.entries(aiDecision.strategyChanges)) {
         if (v == null || shared.strategy[k] === undefined) continue;
@@ -225,7 +227,9 @@ async function _runTickInternal() {
         if (k === 'riskPerTradePercent') {
           val = Math.max(0.1, Math.min(parseFloat(process.env.HARD_CAP_RISK_PER_TRADE) || 1.0, val));
         }
-        if (k === 'minConfidenceScore') val = Math.max(30, Math.min(85, val));
+        if (k === 'minConfidenceScore') {
+          val = clampAiMinScore(val, shared.strategy);
+        }
         if (shared.strategy[k] !== val) {
           shared.strategy[k] = val;
           patched = true;

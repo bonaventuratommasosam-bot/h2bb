@@ -16,9 +16,10 @@ function loadJSON(file, fallback) {
 
 function loadState() {
   shared.strategy = sanitizeStrategy({ ...DEFAULT_STRATEGY, ...loadJSON(STRATEGY_FILE, {}) });
-  // Enable AI autonomy flags when LLM keys exist (unless AI_AUTONOMY=0)
+  // Enable AI autonomy flags + lock operator min score baseline
   try {
-    const { ensureAiStrategyFlags } = require('../lib/ai-autonomy');
+    const { ensureAiStrategyFlags, lockOperatorMinScore } = require('../lib/ai-autonomy');
+    lockOperatorMinScore(shared.strategy);
     ensureAiStrategyFlags(shared.strategy);
   } catch { /* optional */ }
   shared.strategy.createdAt = shared.strategy.createdAt || new Date().toISOString();

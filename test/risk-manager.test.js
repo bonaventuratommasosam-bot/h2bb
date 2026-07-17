@@ -117,6 +117,24 @@ describe('risk-manager', () => {
     assert.equal(hard.stickyKind, null);
   });
 
+  it('computeBudgetOrderSize meets min notional buffer', () => {
+    const strategy = {
+      maxPositionPercent: 25,
+      minConfidenceScore: 50,
+      cashReservePercent: 0,
+    };
+    const size = risk.computeBudgetOrderSize({
+      equity: 100,
+      cash: 100,
+      price: 2000,
+      strategy,
+      entryScore: { score: 70 },
+    });
+    const minN = parseFloat(process.env.MIN_NOTIONAL_USD) || 11;
+    assert.ok(size.usd + 1e-9 >= minN, `usd ${size.usd} should be >= ${minN}`);
+    assert.ok(size.amount > 0);
+  });
+
   it('new calendar day clears daily sticky CB only', () => {
     const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     const state = {

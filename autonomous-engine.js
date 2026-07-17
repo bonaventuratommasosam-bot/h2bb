@@ -6,7 +6,7 @@ const risk = require('./risk-manager');
 const HL_API_HOST = 'api.hyperliquid.xyz';
 const HL_TIMEOUT_MS = parseInt(process.env.HL_TIMEOUT_MS, 10) || 12000;
 const MIN_CANDLES = 5;
-const MIN_NOTIONAL_USD = parseFloat(process.env.MIN_NOTIONAL_USD) || 10;
+const MIN_NOTIONAL_USD = parseFloat(process.env.MIN_NOTIONAL_USD) || 11;
 
 // FIX: client HTTP allineato con index.js — controlla HTTP status code
 // prima di tentare il parse JSON. Prima accettava qualsiasi risposta.

@@ -173,11 +173,24 @@ function computeBudgetOrderSize({ equity, cash, price, strategy, entryScore }) {
 
   const maxPosPct = Math.min(strategy.maxPositionPercent ?? 20, HARD_CAPS.maxPositionPercent) / 100;
   let usd = Math.min(available * deployFraction, budget * maxPosPct);
+  // Always try to meet exchange min notional with buffer (MIN_NOTIONAL_USD default 11)
   if (usd < MIN_NOTIONAL_USD) {
     usd = Math.min(MIN_NOTIONAL_USD, available);
   }
-  if (usd < MIN_NOTIONAL_USD) {
-    return { amount: 0, usd: 0, deployFraction, reason: `sotto minimo exchange $${MIN_NOTIONAL_USD}` };
+  // Round down to cents then ensure still >= min after float noise
+  usd = Math.floor(usd * 100) / 100;
+  if (usd + 1e-9 < MIN_NOTIONAL_USD) {
+    // bump one cent if available allows, else fail
+    if (available >= MIN_NOTIONAL_USD) {
+      usd = MIN_NOTIONAL_USD;
+    } else {
+      return {
+        amount: 0,
+        usd: 0,
+        deployFraction,
+        reason: `sotto minimo exchange $${MIN_NOTIONAL_USD} (avail $${available.toFixed(2)})`,
+      };
+    }
   }
 
   return {

@@ -16,7 +16,7 @@ const TRADES_FOR_COMPARE = parseInt(process.env.SHADOW_TRADES_FOR_COMPARE, 10) |
 const PROMOTION_PF_MARGIN = parseFloat(process.env.SHADOW_PF_MARGIN) || 1.25;
 // Default OFF — set SHADOW_AUTO_PROMOTE=1 to allow live param promote
 const SHADOW_AUTO_PROMOTE = process.env.SHADOW_AUTO_PROMOTE === '1';
-const MIN_NOTIONAL_USD = parseFloat(process.env.MIN_NOTIONAL_USD) || 10;
+const MIN_NOTIONAL_USD = parseFloat(process.env.MIN_NOTIONAL_USD) || 11;
 
 // Parametri testati in rotazione (1 alla volta)
 const PARAM_TESTS = [
