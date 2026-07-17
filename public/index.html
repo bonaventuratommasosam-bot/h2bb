@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Hermes Terminal — public read-only Hyperliquid trading showcase. Live mark mid, equity, positions, bot fills, strategy signal, and TradingView ETHUSD chart. No remote control." />
+  <meta name="description" content="Hermes Terminal — public read-only Hyperliquid showcase with Trust Terminal: equity recon, signal age, why flat, risk caps. Live mid, positions, fills. No remote control." />
   <meta name="theme-color" content="#06090f" />
   <meta property="og:title" content="Hermes Terminal · Hyperliquid Live" />
-  <meta property="og:description" content="View-only institutional terminal: HL perp mid + portfolio, live signal from score, bot fill markers, TradingView ETHUSD. Controls stay on the server." />
+  <meta property="og:description" content="View-only trust terminal: HL mid + equity check, live why-flat signal, risk guardrails. No remote trading controls." />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Hermes Terminal" />
   <meta name="twitter:card" content="summary_large_image" />
@@ -125,6 +125,20 @@
       </div>
 
       <div class="panel-scroll">
+        <section class="panel-section trust-section" id="trust-section" aria-label="Trust terminal">
+          <div class="section-head">
+            <h2>Trust terminal</h2>
+            <div class="trust-badges">
+              <span class="trust-grade" id="trust-grade" title="Trust grade">—</span>
+              <span class="trust-score mono" id="trust-score" title="Trust score 0–100">—</span>
+            </div>
+          </div>
+          <p class="trust-headline" id="trust-headline">Loading honesty checks…</p>
+          <p class="trust-why" id="trust-why"></p>
+          <ul class="trust-checks" id="trust-checks"></ul>
+          <p class="trust-foot mono" id="trust-foot"></p>
+        </section>
+
         <section class="panel-section">
           <div class="section-head">
             <h2>Account breakdown</h2>

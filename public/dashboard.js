@@ -300,6 +300,73 @@
     });
   }
 
+  function renderTrust(data) {
+    const t = data.trust;
+    const gradeEl = $('trust-grade');
+    const scoreEl = $('trust-score');
+    const headEl = $('trust-headline');
+    const whyEl = $('trust-why');
+    const listEl = $('trust-checks');
+    const footEl = $('trust-foot');
+    if (!gradeEl && !headEl) return;
+
+    if (!t) {
+      if (headEl) headEl.textContent = 'Trust report unavailable';
+      if (listEl) listEl.innerHTML = '';
+      return;
+    }
+
+    const status = t.status || 'degraded';
+    if (gradeEl) {
+      gradeEl.textContent = t.grade || '—';
+      gradeEl.className = 'trust-grade ' + status;
+      gradeEl.title = `Trust ${status} · grade ${t.grade}`;
+    }
+    if (scoreEl) {
+      scoreEl.textContent = t.score != null ? `${t.score}/100` : '—';
+    }
+    if (headEl) headEl.textContent = t.headline || '—';
+    if (whyEl) {
+      whyEl.textContent = t.whyFlat || t.whyNotTrading || '';
+      whyEl.hidden = !whyEl.textContent;
+    }
+    if (listEl) {
+      const rows = t.checks || [];
+      listEl.innerHTML = rows.map((c) => {
+        const st = c.status === 'pass' || c.status === 'warn' || c.status === 'fail' ? c.status : 'warn';
+        return `<li class="trust-check ${st}">
+          <span class="dot" aria-hidden="true"></span>
+          <span class="lbl">${c.label || c.id || 'check'}</span>
+          <span class="det">${c.detail || ''}</span>
+        </li>`;
+      }).join('');
+    }
+    if (footEl) {
+      const parts = [
+        t.posture ? `posture ${t.posture}` : null,
+        t.signalAgeSec != null ? `signal ${t.signalAgeSec}s` : null,
+        t.summary ? `${t.summary.pass}✓ ${t.summary.warns}! ${t.summary.fails}✗` : null,
+        'no remote control',
+      ].filter(Boolean);
+      footEl.textContent = parts.join(' · ');
+    }
+
+    // Align quality pill with trust status when present
+    const qp = $('quality-pill');
+    if (qp && t.status) {
+      if (t.status === 'verified') {
+        qp.textContent = `TRUST ${t.grade}`;
+        qp.className = 'quality-pill ok';
+      } else if (t.status === 'degraded') {
+        qp.textContent = `TRUST ${t.grade}`;
+        qp.className = 'quality-pill warn';
+      } else {
+        qp.textContent = `TRUST ${t.grade}`;
+        qp.className = 'quality-pill bad';
+      }
+    }
+  }
+
   function renderSignal(data) {
     const eng = data.engine || {};
     const mkt = data.market || {};
@@ -535,17 +602,15 @@
       ].filter(Boolean).join(' · ');
     }
 
+    // quality-pill: prefer trust status (set in renderTrust); fallback if no trust
     const qp = $('quality-pill');
-    if (qp) {
+    if (qp && !data.trust) {
       if (q.ok === false) {
         qp.textContent = 'DATA WEAK';
         qp.className = 'quality-pill bad';
       } else if (q.equityCheck && q.equityCheck.ok === false) {
         qp.textContent = 'EQUITY Δ';
         qp.className = 'quality-pill warn';
-      } else if (q.scoreVsLastDecision?.diverge) {
-        qp.textContent = 'SCORE LIVE';
-        qp.className = 'quality-pill ok';
       } else if (q.ok) {
         qp.textContent = 'HL LIVE';
         qp.className = 'quality-pill ok';
@@ -988,6 +1053,7 @@
       $('latency').textContent = `${latencyMs} ms`;
     }
     pushWorld(data);
+    renderTrust(data);
     renderSignal(data);
     renderQuote(data);
     renderMeta(data);

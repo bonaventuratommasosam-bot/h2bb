@@ -582,6 +582,103 @@ body.world-body {
   background: rgba(240, 101, 112, 0.1);
 }
 
+/* ===== TRUST TERMINAL ===== */
+.trust-section {
+  border-color: rgba(106, 159, 212, 0.22);
+  background: linear-gradient(165deg, rgba(106, 159, 212, 0.07) 0%, var(--card) 48%);
+}
+.trust-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.trust-grade {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  min-width: 1.6rem;
+  text-align: center;
+  padding: 0.12rem 0.4rem;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.trust-grade.verified {
+  color: var(--good);
+  border-color: rgba(47, 212, 138, 0.4);
+  background: var(--accent-dim);
+}
+.trust-grade.degraded {
+  color: var(--warn);
+  border-color: rgba(224, 176, 74, 0.4);
+  background: rgba(224, 176, 74, 0.1);
+}
+.trust-grade.untrusted {
+  color: var(--bad);
+  border-color: rgba(240, 101, 112, 0.45);
+  background: rgba(240, 101, 112, 0.1);
+}
+.trust-score {
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.trust-headline {
+  margin: 0 0 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 550;
+  line-height: 1.35;
+  color: var(--text);
+}
+.trust-why {
+  margin: 0 0 0.65rem;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.trust-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.trust-check {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 0.35rem 0.5rem;
+  align-items: start;
+  font-size: 0.7rem;
+  line-height: 1.3;
+}
+.trust-check .dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 0.28rem;
+  border-radius: 50%;
+  background: var(--faint);
+}
+.trust-check.pass .dot { background: var(--good); box-shadow: 0 0 6px rgba(47, 212, 138, 0.45); }
+.trust-check.warn .dot { background: var(--warn); box-shadow: 0 0 6px rgba(224, 176, 74, 0.4); }
+.trust-check.fail .dot { background: var(--bad); box-shadow: 0 0 6px rgba(240, 101, 112, 0.45); }
+.trust-check .lbl {
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.01em;
+}
+.trust-check .det {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-family: var(--mono);
+  word-break: break-word;
+}
+.trust-foot {
+  margin: 0.65rem 0 0;
+  font-size: 0.6rem;
+  color: var(--faint);
+}
+
 .panel-scroll {
   flex: 1;
   overflow-y: auto;

@@ -15,6 +15,7 @@ const eventLog = require('../../event-log');
 const shared = require('../../state/shared');
 const realData = require('../../lib/real-data');
 const marketData = require('../../market-data');
+const { buildTrustReport } = require('../../lib/trust-report');
 
 const router = express.Router();
 
@@ -447,6 +448,38 @@ router.get('/api/dashboard', async (req, res) => {
       ],
     };
 
+    const trust = buildTrustReport({
+      dataMode,
+      readOnly: true,
+      showcase: true,
+      price,
+      priceSource: price != null ? 'hyperliquid-allMids' : null,
+      portfolioOk: portfolio?.ok !== false,
+      equityCheck,
+      decisionAgeSec,
+      signalLive,
+      position: positionView,
+      engine: {
+        active: !!shared.strategy.active,
+        operational: !!shared.strategy.active && !riskBlocked,
+        circuitBreaker: !!riskState.circuitBreaker,
+        riskBlocked,
+      },
+      risk: {
+        circuitBreaker: !!riskState.circuitBreaker,
+        circuitReason: riskState.circuitReason || null,
+        stickyKind: riskState.stickyKind || null,
+      },
+      sources: {
+        price: priceSource,
+        balance: balanceSource,
+        market: marketSnap?.ok ? 'hyperliquid-candles' : 'unavailable',
+        portfolio: portfolio?.ok ? 'hyperliquid-api' : (dataMode === 'demo' ? 'none' : 'error'),
+      },
+      hardCaps: HARD_CAPS,
+      hardFloors: HARD_FLOORS,
+    });
+
     // Normalize trade timestamps for UI
     const tradesOut = trades.slice(-30).reverse().map((t) => ({
       ...t,
@@ -470,6 +503,7 @@ router.get('/api/dashboard', async (req, res) => {
         portfolio: portfolio?.ok ? 'hyperliquid-api' : (dataMode === 'demo' ? 'none' : 'error'),
       },
       dataQuality,
+      trust,
       signalLive,
       position: positionView,
       pnl: pnlView,
