@@ -45,9 +45,35 @@ Non suggerire target irrealistici. Basati su livelli tecnici reali.`
 
 // ─── Chiamata DeepSeek condivisa ───
 
+function resolveLlmEndpoint() {
+  // Prefer DeepSeek if key set (low latency for trading ticks)
+  if (process.env.DEEPSEEK_API_KEY) {
+    return {
+      url: DEEPSEEK_URL,
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      model: process.env.DEEPSEEK_MODEL || MODEL,
+      provider: 'deepseek',
+    };
+  }
+  try {
+    const llmProvider = require('./llm-provider');
+    const cfg = llmProvider.resolveConfig?.();
+    if (cfg?.enabled && cfg?.key && cfg?.url) {
+      return {
+        url: cfg.url,
+        apiKey: cfg.key,
+        model: cfg.model || MODEL,
+        provider: cfg.provider || 'llm',
+        headers: cfg.extraHeaders || {},
+      };
+    }
+  } catch { /* optional */ }
+  return null;
+}
+
 async function callDeepSeek(systemPrompt, userPrompt, parser, ctx, eventType) {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) {
+  const ep = resolveLlmEndpoint();
+  if (!ep) {
     logEvent({ event: eventType, status: 'no_api_key', ...meta(ctx) });
     return null;
   }
@@ -58,16 +84,17 @@ async function callDeepSeek(systemPrompt, userPrompt, parser, ctx, eventType) {
 
   let response;
   try {
-    response = await fetch(DEEPSEEK_URL, {
+    response = await fetch(ep.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${ep.apiKey}`,
+        ...(ep.headers || {}),
       },
       body: JSON.stringify({
-        model: MODEL,
-        temperature: 0.3,
-        max_tokens: 150,
+        model: ep.model,
+        temperature: 0.25,
+        max_tokens: 180,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -80,6 +107,7 @@ async function callDeepSeek(systemPrompt, userPrompt, parser, ctx, eventType) {
     const isTimeout = err?.name === 'AbortError';
     logEvent({
       event: eventType, status: isTimeout ? 'timeout' : 'fetch_error',
+      provider: ep.provider,
       error: String(err?.message || err), ms: Date.now() - startedAt, ...meta(ctx),
     });
     return null;
@@ -87,7 +115,7 @@ async function callDeepSeek(systemPrompt, userPrompt, parser, ctx, eventType) {
   clearTimeout(timer);
 
   if (!response.ok) {
-    logEvent({ event: eventType, status: 'http_error', code: response.status, ms: Date.now() - startedAt, ...meta(ctx) });
+    logEvent({ event: eventType, status: 'http_error', provider: ep.provider, code: response.status, ms: Date.now() - startedAt, ...meta(ctx) });
     return null;
   }
 
@@ -100,11 +128,11 @@ async function callDeepSeek(systemPrompt, userPrompt, parser, ctx, eventType) {
   const raw = data?.choices?.[0]?.message?.content || '';
   const parsed = parser(raw);
   if (!parsed) {
-    logEvent({ event: eventType, status: 'unparseable', raw, ms: Date.now() - startedAt, ...meta(ctx) });
+    logEvent({ event: eventType, status: 'unparseable', raw: String(raw).slice(0, 200), ms: Date.now() - startedAt, ...meta(ctx) });
     return null;
   }
 
-  logEvent({ event: eventType, status: 'ok', ...parsed, ms: Date.now() - startedAt, ...meta(ctx) });
+  logEvent({ event: eventType, status: 'ok', provider: ep.provider, ...parsed, ms: Date.now() - startedAt, ...meta(ctx) });
   return parsed;
 }
 

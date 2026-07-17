@@ -50,7 +50,12 @@ const DEFAULT_STRATEGY = {
   minVolumeRatio: 1.1,
   watchlist: ['ETH', 'BTC', 'SOL'],
   scannerEnabled: false,
-  aiSignalEnabled: false,
+  // AI autonomy (LLM second opinion + dynamic threshold/exit/TP). Requires API key.
+  // Force off: AI_AUTONOMY=0. Force on: AI_AUTONOMY=1 + DEEPSEEK_API_KEY (or llm-provider key).
+  aiSignalEnabled: true,
+  aiDynamicThreshold: true,
+  aiExitEnabled: true,
+  aiTakeProfitEnabled: true,
   active: false,
   lastTradeAt: null,
   lastSignal: null,

@@ -73,6 +73,23 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 Il meta-controller può solo muoversi **dentro** questi limiti.
 
+### AI autonomy (decision layer)
+
+When an LLM API key is configured (`DEEPSEEK_API_KEY` preferred, or any `llm-provider` key):
+
+| Hook | Effect |
+|------|--------|
+| **Entry** | AI second opinion: **veto** long (bearish) or **boost** score (bullish) |
+| **Threshold** | AI adjusts `minConfidenceScore` (hard-capped) |
+| **Exit** | AI can force sell in grey-zone urgency |
+| **Take profit** | AI suggests TP levels while in profit |
+
+- Defaults: `aiSignalEnabled` / dynamic threshold / exit / TP **on** in `config/default.js`
+- Force off: `AI_AUTONOMY=0`
+- Force on: `AI_AUTONOMY=1` + API key
+- **Hard caps always win** — AI cannot raise risk beyond ceilings
+- Strategy patches from AI are audited via `lib/strategy-store.js`
+
 ### Circuit breaker sticky (post-review)
 
 | Tipo | Auto-clear | Chi può sbloccare |

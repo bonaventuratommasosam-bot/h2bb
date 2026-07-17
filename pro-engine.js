@@ -12,6 +12,10 @@ const metaController = require('./meta-controller');
 const eventLog = require('./event-log');
 const { REASON, inferReasonCode } = require('./lib/reason-codes');
 const { MIN_NOTIONAL_USD } = require('./config/default');
+const { isAiAutonomyEnabled, ensureAiStrategyFlags } = require('./lib/ai-autonomy');
+const { applyStrategyPatch } = require('./lib/strategy-store');
+const { applyHardCaps } = require('./lib/hard-caps');
+const { sanitizeStrategy } = require('./lib/sanitize-strategy');
 
 function recordDecision(strategy, signal, extras = {}) {
   const reasonCode = signal.reasonCode
@@ -310,6 +314,9 @@ async function runTick(ctx) {
   // lanciavano, l'eccezione propagava a runAutonomousTick che poteva
   // lasciare strategy in stato inconsistente (es. lastTradeAt non aggiornato).
   try {
+    ensureAiStrategyFlags(strategy);
+    const aiOn = isAiAutonomyEnabled(strategy);
+
     const pair = strategy.pair;
     const price = await getPrice(pair);
     if (price == null || !(price > 0)) {
@@ -399,11 +406,11 @@ async function runTick(ctx) {
       }
     }
 
-    // Soglia dinamica AI (ogni 30 tick)
+    // ── AI autonomy: dynamic threshold (adjust strategy, hard-capped) ──
     if (
-      strategy.aiDynamicThreshold &&
-      strategy.aiSignalEnabled &&
-      tickState.count - tickState.lastThresholdTick >= 30
+      aiOn
+      && strategy.aiDynamicThreshold !== false
+      && tickState.count - tickState.lastThresholdTick >= 20
     ) {
       tickState.lastThresholdTick = tickState.count;
       try {
@@ -414,13 +421,10 @@ async function runTick(ctx) {
         const ema50 = analysis.entry.ema50;
         const emaDist = (ema20 && ema50 && price > 0)
           ? Math.abs(ema20 - ema50) / price * 100 : 0;
-        // Loop 1 — Performance Feedback: usa dati reali, non più hardcoded
-        // Aggiorna il feedback ogni 30 tick (invece di costruirlo ogni volta)
         let fb;
-        if (tickState.count - tickState.lastFeedbackTick >= 30) {
+        if (tickState.count - tickState.lastFeedbackTick >= 20) {
           fb = feedback.buildFeedbackContext(strategy);
           tickState.lastFeedbackTick = tickState.count;
-          // Salva nel tickState per uso tra un aggiornamento e l'altro
           tickState._lastFeedback = fb;
         } else {
           fb = tickState._lastFeedback || { winRate: null, lastTrades: [], profitFactor: null };
@@ -430,26 +434,45 @@ async function runTick(ctx) {
           regime,
           volatilityPct: volPct,
           lastTrades: fb.lastTrades || [],
-          winRate: fb.winRate ?? 50,  // fallback 50 solo se mai calcolato
+          winRate: fb.winRate ?? 50,
           adx: analysis.entry.adx || 0,
           emaDistance: { ema20, ema50, distancePct: emaDist },
           profitFactor: fb.profitFactor,
         });
-        if (newThreshold?.threshold) {
-          strategy.minConfidenceScore = newThreshold.threshold;
-          onLog(`[AI-THRESHOLD] Soglia: ${newThreshold.threshold} — ${newThreshold.reasoning}`);
+        if (newThreshold?.threshold != null) {
+          const prev = strategy.minConfidenceScore;
+          // Clamp via hard caps / sanitize
+          const next = Math.round(Number(newThreshold.threshold));
+          applyStrategyPatch(
+            { minConfidenceScore: next },
+            {
+              source: 'ai_threshold',
+              reason: newThreshold.reasoning || 'AI dynamic threshold',
+              persist: true,
+            }
+          );
+          // Re-sync local refs after patch (strategy is shared.strategy)
+          minScore = Math.max(minScore, strategy.minConfidenceScore ?? next);
+          // Re-apply regime boost on top of AI base
+          if (regimeDecision.adjustments?.scoreBoost) {
+            minScore = Math.min(85, (strategy.minConfidenceScore ?? next) + regimeDecision.adjustments.scoreBoost);
+          } else {
+            minScore = strategy.minConfidenceScore ?? next;
+          }
+          entryScore.effectiveMin = minScore;
+          onLog(`[AI-THRESHOLD] ${prev} → ${strategy.minConfidenceScore} — ${newThreshold.reasoning || ''}`);
         }
       } catch (err) {
-        // error non blocca
+        onLog(`[AI-THRESHOLD] skip: ${err?.message || err}`);
       }
     }
 
-    // AI second opinion — solo se segnale LONG e sopra soglia minima
-    if (
-      entryScore.bias === 'long' &&
-      strategy.aiSignalEnabled &&
-      entryScore.score >= (strategy.minConfidenceScore ?? 0)
-    ) {
+    // ── AI autonomy: entry second opinion (veto / boost) ──
+    // Call when near threshold (watch or long), not only after full pass — autonomy needs veto power
+    const nearEntry = entryScore.bias === 'long'
+      || entryScore.bias === 'watch'
+      || (entryScore.score != null && entryScore.score >= (minScore - 12));
+    if (aiOn && nearEntry && !hasPosition && entryScore.bias !== 'blocked') {
       try {
         const e = analysis.entry;
         const aiResult = await aiSignal.evaluate({
@@ -478,9 +501,24 @@ async function runTick(ctx) {
           fundingRate: analysis.context?.funding,
           entryScore: entryScore.score,
         });
-        if (aiResult?.bias === 'bearish') {
-          entryScore.score -= aiResult.confidence * 0.3;
-          entryScore.signals.push(`AI: ${aiResult.reasoning}`);
+        if (aiResult) {
+          entryScore.ai = aiResult;
+          if (aiResult.bias === 'bearish' && aiResult.confidence >= 45) {
+            // Hard veto: AI disagrees with long — do not enter this tick
+            entryScore.bias = 'wait';
+            entryScore.score = Math.min(entryScore.score, minScore - 1);
+            entryScore.signals.push(`AI-VETO (${aiResult.confidence}): ${aiResult.reasoning}`);
+            entryScore.reasonCode = REASON.AI_VETO;
+            onLog(`[AI-VETO] conf ${aiResult.confidence} — ${aiResult.reasoning}`);
+          } else if (aiResult.bias === 'bullish' && aiResult.confidence >= 50) {
+            const boost = Math.min(12, Math.round(aiResult.confidence * 0.12));
+            entryScore.score = Math.min(100, entryScore.score + boost);
+            entryScore.signals.push(`AI-CONFIRM +${boost} (${aiResult.confidence}): ${aiResult.reasoning}`);
+            if (entryScore.score >= minScore) entryScore.bias = 'long';
+            onLog(`[AI-CONFIRM] +${boost} score → ${entryScore.score}/${minScore}`);
+          } else if (aiResult.bias === 'neutral') {
+            entryScore.signals.push(`AI-NEUTRAL: ${aiResult.reasoning}`);
+          }
         }
       } catch (err) {
         console.error('[aiSignal] unexpected error:', err?.message || err);
@@ -518,13 +556,13 @@ async function runTick(ctx) {
       if (exit.updateTrailingPeak != null) strategy.trailingPeak = exit.updateTrailingPeak;
       else if (price > (strategy.trailingPeak || 0)) strategy.trailingPeak = price;
 
-      // AI Exit (zona grigia: urgency 40-52)
+      // AI Exit — broader grey zone for autonomy (urgency 35–60)
       if (
-        strategy.aiExitEnabled &&
-        strategy.aiSignalEnabled &&
-        exit.urgency >= 40 &&
-        exit.urgency < 52 &&
-        exit.action !== 'sell'
+        aiOn
+        && strategy.aiExitEnabled !== false
+        && exit.urgency >= 35
+        && exit.urgency < 60
+        && exit.action !== 'sell'
       ) {
         try {
           const move = pctMove(price, entryPrice, position > 0);
@@ -546,10 +584,11 @@ async function runTick(ctx) {
             },
             fundingRate: analysis.context?.funding,
           });
-          if (aiExit?.action === 'sell') {
-            exit.urgency = 55;
+          if (aiExit?.action === 'sell' && (aiExit.confidence ?? 0) >= 50) {
+            exit.urgency = 60;
             exit.action = 'sell';
             exit.reason = `AI-EXIT: ${aiExit.reasoning}`;
+            exit.reasonCode = REASON.AI_EXIT;
             onLog(`[AI-EXIT] Vendi (conf ${aiExit.confidence}) — ${aiExit.reasoning}`);
           }
         } catch (err) {
@@ -559,9 +598,9 @@ async function runTick(ctx) {
 
       // AI Take Profit (ogni 10 tick, se in profitto >1%)
       if (
-        strategy.aiTakeProfitEnabled &&
-        strategy.aiSignalEnabled &&
-        tickState.count - tickState.lastTpTick >= 10
+        aiOn
+        && strategy.aiTakeProfitEnabled !== false
+        && tickState.count - tickState.lastTpTick >= 10
       ) {
         tickState.lastTpTick = tickState.count;
         const move = pctMove(price, entryPrice, position > 0);
@@ -635,7 +674,15 @@ async function runTick(ctx) {
         analysis: entryScore.signals,
         reasonCode: entryScore.reasonCode || REASON.BLOCKED_MACRO_BEAR,
       };
-    } else if (entryScore.bias === 'long' && riskCheck.allowed) {
+    } else if (entryScore.reasonCode === REASON.AI_VETO) {
+      signal = {
+        action: 'hold',
+        reason: entryScore.signals.find((s) => String(s).includes('AI-VETO')) || 'AI veto entry',
+        score: entryScore.score,
+        analysis: entryScore.signals,
+        reasonCode: REASON.AI_VETO,
+      };
+    } else if (entryScore.bias === 'long' && entryScore.score >= minScore && riskCheck.allowed) {
       signal = {
         action: 'buy',
         reason: `confluenza ${entryScore.score}/${minScore} [${entryScore.regime}]: ${entryScore.signals.join(', ')}`,
@@ -659,9 +706,19 @@ async function runTick(ctx) {
       regime: entryScore.regime,
       riskReasons: riskCheck.reasons,
     });
+    if (entryScore.ai) {
+      strategy.lastDecision = {
+        ...strategy.lastDecision,
+        ai: {
+          bias: entryScore.ai.bias,
+          confidence: entryScore.ai.confidence,
+          reasoning: entryScore.ai.reasoning,
+        },
+      };
+    }
 
     const rsi = analysis.entry.ok ? analysis.entry.rsi : null;
-    onLog(`[PRO] ${pair} $${price.toFixed(2)} RSI=${rsi?.toFixed(1) ?? 'n/d'} score=${entryScore.score}/${minScore} ${entryScore.regime} → ${signal.action} [${signal.reasonCode}]`);
+    onLog(`[PRO] ${pair} $${price.toFixed(2)} RSI=${rsi?.toFixed(1) ?? 'n/d'} score=${entryScore.score}/${minScore} ${entryScore.regime} ai=${aiOn ? 'on' : 'off'} → ${signal.action} [${signal.reasonCode}]`);
 
     if (signal.action === 'sell' && hasPosition) {
       const partial = signal.partial ? (signal.partialPercent ?? 50) / 100 : 1;

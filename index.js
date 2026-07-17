@@ -74,6 +74,11 @@ function onServerReady(boundHost) {
     console.log('[RISK] Floors:', JSON.stringify(HARD_FLOORS));
     console.log('[RISK] Sticky CB: daily clears on new day; drawdown needs operator resume');
   } catch { /* ignore */ }
+  try {
+    const { aiStatusLine, ensureAiStrategyFlags } = require('./lib/ai-autonomy');
+    ensureAiStrategyFlags(shared.strategy);
+    console.log(aiStatusLine(shared.strategy));
+  } catch { /* ignore */ }
 
   hermesProfile.ensureProfile(DATA_DIR, {
     agentName: `client-trade-${process.env.ORDER_ID || '1'}`,
