@@ -100,7 +100,17 @@ function regimeAdjustments(classification, strategy = {}) {
   const prevRegime = routerState.currentRegime;
   const degenBear = strategy.degenTradeInBear === true
     || strategy.aiMode === 'degen'
+    || strategy.aiMode === 'super_degen'
     || strategy.aiMode === 'aggressive';
+  let bearMult = 0.55;
+  let bearBoost = 8;
+  try {
+    const { getBearSizeMultiplier, isSuperDegenMode } = require('./lib/ai-mode');
+    if (degenBear) {
+      bearMult = getBearSizeMultiplier(strategy) || 0.55;
+      if (isSuperDegenMode(strategy)) bearBoost = 3;
+    }
+  } catch { /* default */ }
 
   switch (classification.regime) {
     case 'bull':
@@ -116,16 +126,16 @@ function regimeAdjustments(classification, strategy = {}) {
       };
 
     case 'bear':
-      // Degen: trade with reduced size instead of hard flat (AI owns aggression)
+      // Degen/super: trade with reduced (or near-full) size instead of hard flat
       if (degenBear) {
         return {
           mode: 'reduce',
           flat: false,
           adjustments: {
-            scoreBoost: 8,
-            sizeMultiplier: 0.55,
-            tpMultiplier: 1.2,
-            reason: `Bear degen — size ridotta · ${classification.reasons.join(', ')}`,
+            scoreBoost: bearBoost,
+            sizeMultiplier: bearMult,
+            tpMultiplier: 1.15,
+            reason: `Bear degen — size x${bearMult} · ${classification.reasons.join(', ')}`,
           },
         };
       }

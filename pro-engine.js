@@ -149,9 +149,10 @@ function scoreEntry(analysis, strategy = {}) {
   const baseMin = strategy.minConfidenceScore ?? 65;
   const effectiveMin = ind.dynamicMinScore(baseMin, regime, macro.ok ? macro.trend : 'neutral');
 
-  // Macro bearish: hard block in balanced mode; soft penalty in degen (AI can still trade bounces)
+  // Macro bearish: hard block in balanced; soft penalty in degen/super_degen
   const softMacro = strategy.softMacroBlock === true
     || strategy.aiMode === 'degen'
+    || strategy.aiMode === 'super_degen'
     || strategy.aiMode === 'aggressive';
   if (macro.ok && macro.trend === 'bearish' && macro.adx > 25) {
     if (!softMacro) {
@@ -164,9 +165,13 @@ function scoreEntry(analysis, strategy = {}) {
         reasonCode: REASON.BLOCKED_MACRO_BEAR,
       };
     }
-    // Degen: penalize but do not zero-out the entire setup
-    score -= 18;
-    signals.push('macro bearish (soft −18)');
+    let penalty = 18;
+    try {
+      const { getMacroSoftPenalty } = require('./lib/ai-mode');
+      penalty = getMacroSoftPenalty(strategy);
+    } catch { /* default */ }
+    score -= penalty;
+    signals.push(`macro bearish (soft −${penalty})`);
   }
 
   const maxFunding = strategy.maxFundingRate ?? 0.00005;

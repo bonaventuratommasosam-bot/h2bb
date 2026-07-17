@@ -195,9 +195,14 @@ async function _runTickInternal() {
     const entryScore = out.entryScore
       || (analysis ? proEngine.scoreEntry(analysis, shared.strategy) : null);
 
-    // Self-learning pre-tune
+    // Self-learning pre-tune (skipped in super_degen — would defang aggression)
     try {
-      if (analysis && entryScore) {
+      if (
+        analysis
+        && entryScore
+        && !shared.strategy.skipConservativeSelfLearn
+        && shared.strategy.aiMode !== 'super_degen'
+      ) {
         const tune = selfLearning.suggestTuning(analysis, entryScore, shared.strategy);
         if (tune.suggestions && Object.keys(tune.suggestions).length) {
           const ch = selfLearning.applySuggestions(shared.strategy, tune.suggestions, {

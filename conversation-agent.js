@@ -265,12 +265,19 @@ async function evaluateDecision(contextReport, strategy = {}) {
   let enterHint = 'Se confidente >80 entra subito (decision=enter), se 60-80 aspetta (hold/adapt), se <60 rifiuta (hold).';
   let temperature = 0.3;
   try {
-    const { isDegenMode, getAiEnterMinConfidence, degenSystemPromptExtra } = require('./lib/ai-mode');
-    if (isDegenMode(strategy) || contextReport?.aiMode === 'degen') {
-      degenExtra = '\n' + degenSystemPromptExtra();
+    const {
+      isDegenMode,
+      isSuperDegenMode,
+      getAiEnterMinConfidence,
+      degenSystemPromptExtra,
+    } = require('./lib/ai-mode');
+    const mode = strategy?.aiMode || contextReport?.aiMode;
+    if (isDegenMode(strategy) || mode === 'degen' || mode === 'super_degen') {
+      degenExtra = '\n' + degenSystemPromptExtra(strategy);
       const em = getAiEnterMinConfidence(strategy);
-      enterHint = `MODALITÀ DEGEN: se confidente ≥${em} usa decision=enter (non restare in hold eterno). Preferisci adapt/enter a hold.`;
-      temperature = 0.55;
+      const label = isSuperDegenMode(strategy) || mode === 'super_degen' ? 'SUPER DEGEN' : 'DEGEN';
+      enterHint = `MODALITÀ ${label}: se confidente ≥${em} usa decision=enter. Preferisci enter/adapt a hold.`;
+      temperature = isSuperDegenMode(strategy) || mode === 'super_degen' ? 0.7 : 0.55;
     }
   } catch { /* optional */ }
 

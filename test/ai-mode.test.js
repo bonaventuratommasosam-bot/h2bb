@@ -10,22 +10,29 @@ const {
 const { clampAiMinScore } = require('../lib/ai-autonomy');
 const { scoreEntry } = require('../pro-engine');
 
+const { isSuperDegenMode, getMacroSoftPenalty } = require('../lib/ai-mode');
+
 describe('ai-mode degen', () => {
   it('normalizes degen aliases', () => {
     assert.equal(normalizeAiMode({ aiMode: 'degen' }), 'degen');
     assert.equal(normalizeAiMode({ aiMode: 'aggressive' }), 'degen');
+    assert.equal(normalizeAiMode({ aiMode: 'super_degen' }), 'super_degen');
+    assert.equal(normalizeAiMode({ aiMode: 'yolo' }), 'super_degen');
     assert.equal(isDegenMode({ aiMode: 'balanced' }), false);
+    assert.equal(isSuperDegenMode({ aiMode: 'super_degen' }), true);
   });
 
   it('degen enter conf is lower than balanced', () => {
     assert.ok(getAiEnterMinConfidence({ aiMode: 'degen' }) < getAiEnterMinConfidence({ aiMode: 'balanced' }));
+    assert.ok(getAiEnterMinConfidence({ aiMode: 'super_degen' }) < getAiEnterMinConfidence({ aiMode: 'degen' }));
   });
 
   it('degen score band is wider', () => {
     const d = getAiScoreBand({ aiMode: 'degen' });
     const b = getAiScoreBand({ aiMode: 'balanced' });
+    const s = getAiScoreBand({ aiMode: 'super_degen' });
     assert.ok(d.drop > b.drop);
-    assert.ok(d.lift >= b.lift);
+    assert.ok(s.drop >= d.drop);
   });
 
   it('applyAiModeProfile upgrades conservative params', () => {
@@ -44,6 +51,20 @@ describe('ai-mode degen', () => {
     assert.ok(s.maxPositionPercent >= 15);
     assert.equal(s.softMacroBlock, true);
     assert.equal(s.degenTradeInBear, true);
+  });
+
+  it('super_degen force-applies high aggression', () => {
+    const s = applyAiModeProfile({
+      aiMode: 'super_degen',
+      minConfidenceScore: 70,
+      riskPerTradePercent: 0.1,
+      maxPositionPercent: 5,
+    });
+    assert.equal(s.aiMode, 'super_degen');
+    assert.ok(s.riskPerTradePercent >= 2);
+    assert.ok(s.maxPositionPercent >= 40);
+    assert.equal(s.skipConservativeSelfLearn, true);
+    assert.ok(getMacroSoftPenalty(s) <= 8);
   });
 
   it('clampAiMinScore allows deeper drop in degen', () => {
