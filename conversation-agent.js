@@ -194,6 +194,116 @@ Altrimenti rispondi solo con testo naturale in italiano, max 5 frasi, proattivo.
   }
 }
 
+// ── AI decision layer — called each tick after TA signal ──
+
+const AI_DECISION_TIMEOUT_MS = Math.min(
+  parseInt(process.env.AI_DECISION_TIMEOUT_MS, 10) || 8000,
+  15000
+);
+
+const AI_DECISION_FALLBACK = {
+  decision: 'ta_fallback',
+  reason: 'LLM non disponibile o timeout — seguo indicatori TA',
+  confidence: 0,
+  strategyChanges: {
+    minConfidenceScore: null,
+    rsiOversold: null,
+    rsiOverbought: null,
+    atrStopMultiplier: null,
+    riskPerTradePercent: null,
+  },
+  entryOverride: { approved: true, reason: null },
+  exitOverride: { force: false, reason: null },
+};
+
+function parseDecisionJson(raw) {
+  if (!raw) return null;
+  const m = String(raw).match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try { return JSON.parse(m[0]); } catch { return null; }
+}
+
+function normalizeDecision(obj) {
+  if (!obj || typeof obj !== 'object') return { ...AI_DECISION_FALLBACK };
+  const decision = String(obj.decision || 'hold').toLowerCase();
+  const allowed = ['adapt', 'enter', 'exit', 'hold', 'ta_fallback'];
+  const sc = obj.strategyChanges || {};
+  return {
+    decision: allowed.includes(decision) ? decision : 'hold',
+    reason: String(obj.reason || '').slice(0, 280),
+    confidence: Math.max(0, Math.min(100, Number(obj.confidence) || 0)),
+    strategyChanges: {
+      minConfidenceScore: sc.minConfidenceScore != null ? Number(sc.minConfidenceScore) : null,
+      rsiOversold: sc.rsiOversold != null ? Number(sc.rsiOversold) : null,
+      rsiOverbought: sc.rsiOverbought != null ? Number(sc.rsiOverbought) : null,
+      atrStopMultiplier: sc.atrStopMultiplier != null ? Number(sc.atrStopMultiplier) : null,
+      riskPerTradePercent: sc.riskPerTradePercent != null ? Number(sc.riskPerTradePercent) : null,
+    },
+    entryOverride: {
+      approved: obj.entryOverride?.approved !== false,
+      reason: obj.entryOverride?.reason ?? null,
+    },
+    exitOverride: {
+      force: !!obj.exitOverride?.force,
+      reason: obj.exitOverride?.reason ?? null,
+    },
+  };
+}
+
+/**
+ * LLM decision agent — called every tick when TA wants to enter.
+ * @param {object} contextReport from proEngine.getContextReport(...)
+ */
+async function evaluateDecision(contextReport) {
+  const cfg = llmProvider.resolveConfig();
+  if (!cfg.enabled) {
+    return { ...AI_DECISION_FALLBACK, reason: 'Nessuna API key LLM — TA fallback' };
+  }
+
+  const system = `Sei Hermes, trader senior in italiano. Leggi il report multi-timeframe e decidi autonomamente.
+Puoi modificare parametri strategia (solo i campi in strategyChanges, null = non toccare).
+Se confidente >80 entra subito (decision=enter), se 60-80 aspetta (hold/adapt), se <60 rifiuta (hold).
+decision=exit solo se posizione aperta e serve uscire.
+decision=adapt per cambiare parametri senza entrare.
+Rispondi SOLO con JSON valido, niente markdown, niente testo fuori dal JSON.
+Schema:
+{"decision":"adapt|enter|exit|hold","reason":"max 2 frasi italiano","confidence":0-100,"strategyChanges":{"minConfidenceScore":null,"rsiOversold":null,"rsiOverbought":null,"atrStopMultiplier":null,"riskPerTradePercent":null},"entryOverride":{"approved":true,"reason":null},"exitOverride":{"force":false,"reason":null}}`;
+
+  const user = `Report trading (JSON):\n${JSON.stringify(contextReport)}`;
+
+  try {
+    const res = await httpsJson(cfg.url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${cfg.key}`,
+        ...(cfg.extraHeaders || {}),
+      },
+      timeout: AI_DECISION_TIMEOUT_MS,
+    }, {
+      model: cfg.model,
+      temperature: 0.3,
+      max_tokens: 250,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    });
+
+    const raw = res?.choices?.[0]?.message?.content || '';
+    const parsed = parseDecisionJson(raw);
+    if (!parsed) {
+      console.warn('[AI-DECISION] unparseable response, ta_fallback');
+      return { ...AI_DECISION_FALLBACK };
+    }
+    const norm = normalizeDecision(parsed);
+    console.log(`[AI-DECISION] ${norm.decision} conf=${norm.confidence} — ${norm.reason}`);
+    return norm;
+  } catch (e) {
+    console.error('[AI-DECISION]', e.message || e);
+    return { ...AI_DECISION_FALLBACK, reason: `Errore LLM: ${e.message || 'timeout'} — TA fallback` };
+  }
+}
+
 function intelligentReply(text, context) {
   const t = normalize(text);
   const {
@@ -334,4 +444,5 @@ module.exports = {
   greetReply,
   llmChat,
   getPersona,
+  evaluateDecision,
 };

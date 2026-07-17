@@ -777,6 +777,22 @@ async function runTick(ctx) {
       }
 
       onLog(`[PRO] Size auto: ${orderAmount.toFixed(4)} ETH (~$${notional.toFixed(2)}, ${Math.round((sizing.deployFraction || 0) * 100)}% del budget $${(sizing.budget ?? cash).toFixed(2)})`);
+
+    // Defer buy to AI decision layer when requested
+    if (ctx.deferExecution) {
+      strategy.lastSignal = signal;
+      onLog(`[PRO] Buy deferred for AI gate: ${orderAmount.toFixed(4)} @ ~$${notional.toFixed(2)}`);
+      return {
+        signal,
+        result: null,
+        analysis,
+        entryScore,
+        deferred: true,
+        sizing: { ...sizing, amount: orderAmount, usd: notional, leg: 'full' },
+        price,
+      };
+    }
+
       const res = await executeMarketBuy(pair, orderAmount);
       if (!res.ok) {
         onLog(`[PRO] Buy fallito: ${res.error || 'errore sconosciuto'}`);
@@ -808,6 +824,71 @@ async function runTick(ctx) {
   }
 }
 
+/**
+ * Report multi-timeframe per LLM decision agent (compact JSON).
+ */
+function getContextReport(analysis, entryScore, strategy, riskState, equity, balance, price, position) {
+  const tf = (a) => {
+    if (!a || !a.ok) return { ok: false };
+    return {
+      trend: a.trend ?? null,
+      regime: a.regime ?? null,
+      adx: a.adx ?? null,
+      rsi: a.rsi ?? null,
+      rsiRising: a.rsiRising ?? null,
+      macdSignal: a.macd
+        ? (a.macd.histogram > 0 ? 'bull' : a.macd.histogram < 0 ? 'bear' : 'flat')
+        : null,
+      bbPos: a.bbPos ?? null,
+      atr: a.atr ?? null,
+      volRatio: a.volRatio ?? null,
+    };
+  };
+  const posSize = typeof position === 'number' ? position : 0;
+  const dayStart = riskState?.dayStartEquity;
+  const peak = riskState?.peakEquity;
+  const dayPnl = dayStart > 0 && equity != null
+    ? ((equity - dayStart) / dayStart) * 100
+    : null;
+  const drawdownPct = peak > 0 && equity != null
+    ? ((equity - peak) / peak) * 100
+    : null;
+
+  return {
+    pair: strategy?.pair || 'ETH',
+    price: price ?? null,
+    mode: strategy?.mode || 'pro',
+    analysis: {
+      macro: tf(analysis?.macro),
+      trend: tf(analysis?.trend),
+      entry: tf(analysis?.entry),
+    },
+    score: {
+      value: entryScore?.score ?? null,
+      minConfidence: strategy?.minConfidenceScore ?? null,
+      effectiveMin: entryScore?.effectiveMin ?? strategy?.minConfidenceScore ?? null,
+      bias: entryScore?.bias ?? null,
+      regime: entryScore?.regime ?? null,
+      signals: entryScore?.signals || [],
+    },
+    funding: analysis?.context?.funding ?? null,
+    position: { hasPosition: Math.abs(posSize) > 1e-9, size: posSize },
+    strategy: {
+      active: !!strategy?.active,
+      maxDailyLossPercent: strategy?.maxDailyLossPercent ?? null,
+      riskPerTradePercent: strategy?.riskPerTradePercent ?? null,
+    },
+    risk: {
+      circuitBreaker: !!riskState?.circuitBreaker,
+      circuitReason: riskState?.circuitReason || null,
+      dayPnl: dayPnl != null ? Math.round(dayPnl * 100) / 100 : null,
+      drawdownPct: drawdownPct != null ? Math.round(drawdownPct * 100) / 100 : null,
+    },
+    equity: equity ?? null,
+    cashBalance: balance?.amount ?? equity ?? null,
+  };
+}
+
 function formatAnalysisReport(analysis, signal, strategy) {
   const lines = [`📈 *Analisi PRO ${strategy.pair}*`];
   if (analysis.context) {
@@ -834,4 +915,5 @@ module.exports = {
   scoreExit,
   runTick,
   formatAnalysisReport,
+  getContextReport,
 };

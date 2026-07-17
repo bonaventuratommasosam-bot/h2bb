@@ -11,6 +11,8 @@ const proEngine = require('../pro-engine');
 const proactive = require('../proactive-agent');
 const shadowEngine = require('../shadow-engine');
 const metaController = require('../meta-controller');
+const conversationAgent = require('../conversation-agent');
+const selfLearning = require('../self-learning');
 const experiment = require('../strategy-experiment');
 const eventLog = require('../event-log');
 const { DATA_DIR } = require('../config/default');
@@ -166,6 +168,7 @@ async function _runTickInternal() {
     onTrade: (trade, sig) => notifyOwner(null, null, trade, sig),
     onAlert: (title, detail) => notifyOwner(title, detail),
     riskState: shared.riskState, saveRiskState,
+    deferExecution: true,
   };
 
   const out = shared.strategy.mode === 'pro'
@@ -173,6 +176,117 @@ async function _runTickInternal() {
     : await autonomous.runTick(tickCtx);
 
   if (out?.blocked) shared.riskState = riskManager.loadRiskState();
+
+  // ── AI decision layer (after TA signal, before buy execution) ──
+  if (
+    shared.strategy.mode === 'pro'
+    && shared.strategy.active
+    && out?.deferred
+    && out?.sizing
+  ) {
+    const signal = out.signal;
+    const analysis = out.analysis;
+    const entryScore = out.entryScore
+      || (analysis ? proEngine.scoreEntry(analysis, shared.strategy) : null);
+
+    // Self-learning pre-tune
+    try {
+      if (analysis && entryScore) {
+        const tune = selfLearning.suggestTuning(analysis, entryScore, shared.strategy);
+        if (tune.suggestions && Object.keys(tune.suggestions).length) {
+          const ch = selfLearning.applySuggestions(shared.strategy, tune.suggestions, {
+            hardCapRisk: parseFloat(process.env.HARD_CAP_RISK_PER_TRADE) || 1.0,
+          });
+          if (ch.length) {
+            console.log(`[SELF-LEARN] ${tune.reason} → ${ch.join(', ')}`);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[SELF-LEARN]', e.message);
+    }
+
+    const equityNow = await require('../trading/balance').getEquity();
+    const posNow = await getPositionSize(shared.strategy.pair);
+    const report = proEngine.getContextReport(
+      analysis, entryScore, shared.strategy, shared.riskState,
+      equityNow, shared.balance, out.price ?? price, posNow
+    );
+
+    const aiDecision = await conversationAgent.evaluateDecision(report);
+
+    // Apply strategyChanges (null = skip)
+    if (aiDecision.strategyChanges) {
+      let patched = false;
+      for (const [k, v] of Object.entries(aiDecision.strategyChanges)) {
+        if (v == null || shared.strategy[k] === undefined) continue;
+        let val = Number(v);
+        if (!Number.isFinite(val)) continue;
+        if (k === 'riskPerTradePercent') {
+          val = Math.max(0.1, Math.min(parseFloat(process.env.HARD_CAP_RISK_PER_TRADE) || 1.0, val));
+        }
+        if (k === 'minConfidenceScore') val = Math.max(30, Math.min(85, val));
+        if (shared.strategy[k] !== val) {
+          shared.strategy[k] = val;
+          patched = true;
+        }
+      }
+      if (patched) {
+        console.log(`[AI-DECISION] strategy patched — ${aiDecision.reason}`);
+      }
+    }
+
+    // Force exit
+    if (aiDecision.decision === 'exit' || aiDecision.exitOverride?.force) {
+      if (Math.abs(posNow) > 1e-9) {
+        console.log(`[AI-DECISION] FORCE EXIT conf=${aiDecision.confidence} — ${aiDecision.reason}`);
+        const sellRes = await executeMarketSell(shared.strategy.pair, 1);
+        if (sellRes.ok) {
+          shared.strategy.lastTradeAt = Date.now();
+          shared.strategy.lastSignal = { action: 'sell', reason: `AI: ${aiDecision.reason}`, score: aiDecision.confidence };
+          if (sellRes.trade) notifyOwner(null, null, sellRes.trade, shared.strategy.lastSignal);
+        }
+      }
+    } else if (signal.action === 'buy' || signal.action === 'add') {
+      const conf = aiDecision.confidence ?? 0;
+      const approved = aiDecision.entryOverride?.approved !== false;
+      const enterOk = aiDecision.decision === 'enter' && conf >= 80 && approved;
+
+      if (aiDecision.decision === 'ta_fallback') {
+        console.log(`[AI-DECISION] ta_fallback — eseguo buy TA`);
+        const res = await executeMarketBuy(shared.strategy.pair, out.sizing.amount);
+        if (res.ok) {
+          shared.strategy.lastTradeAt = Date.now();
+          shared.strategy.lastSignal = signal;
+          shared.strategy.tp1Taken = false;
+          shared.strategy.trailingPeak = out.price ?? price;
+          shared.strategy.positionLeg = 'full';
+          shared.strategy.scaleInPending = false;
+          if (res.trade) notifyOwner(null, null, res.trade, signal);
+        }
+      } else if (enterOk) {
+        console.log(`[AI-DECISION] ENTER conf=${conf} — ${aiDecision.reason}`);
+        const res = await executeMarketBuy(shared.strategy.pair, out.sizing.amount);
+        if (res.ok) {
+          shared.strategy.lastTradeAt = Date.now();
+          shared.strategy.lastSignal = { ...signal, reason: `${signal.reason} | AI:${aiDecision.reason}`, aiConfidence: conf };
+          shared.strategy.tp1Taken = false;
+          shared.strategy.trailingPeak = out.price ?? price;
+          shared.strategy.positionLeg = 'full';
+          shared.strategy.scaleInPending = false;
+          if (res.trade) notifyOwner(null, null, res.trade, shared.strategy.lastSignal);
+        } else {
+          console.log(`[AI-DECISION] Buy fallito: ${res.error}`);
+        }
+      } else {
+        console.log(`[AI-DECISION] SKIP buy decision=${aiDecision.decision} conf=${conf} — ${aiDecision.reason}`);
+        shared.strategy.lastSignal = { action: 'hold', reason: `AI ${aiDecision.decision}: ${aiDecision.reason}`, score: conf };
+      }
+    } else if (aiDecision.decision === 'adapt' || aiDecision.decision === 'hold') {
+      console.log(`[AI-DECISION] ${aiDecision.decision} — ${aiDecision.reason}`);
+    }
+  }
+
   // AUTONOMY: persisti SEMPRE le modifiche autonome della strategia (meta-controller,
   // shadow-engine, risk) — non solo sui segnali. Il bot e' padrone della sua config.
   saveStrategy();
