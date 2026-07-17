@@ -91,9 +91,17 @@ function onServerReady(boundHost) {
   startProactiveLoop();
 
   engineContextSync.startEngineContextSync({
-    strategy: shared.strategy, balance: shared.balance,
+    strategy: shared.strategy,
+    balance: shared.balance,
+    riskState: shared.riskState,
+    shared,
     isLiveMode: require('./state/wallet').isLiveMode,
-    loadWallet, getPrice: require('./trading/price').getPrice,
+    loadWallet,
+    getPrice: require('./trading/price').getPrice,
+    getEquity: require('./trading/balance').getEquity,
+    getPositionSize: require('./trading/positions').getPositionSize,
+    getEntryPrice: require('./trading/positions').getEntryPrice,
+    getRiskBlocked: require('./state/risk').getRiskBlocked,
     calcPnL: require('./trading/pnl').calcPnL,
     hlLive: require('./hyperliquid-live'),
     walletKey: require('./state/wallet').walletKey,
