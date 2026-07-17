@@ -669,7 +669,18 @@ async function runTick(ctx) {
         }
       }
 
-      if (strategy.scaleInPending && exit.action === 'hold' && entryScore.score >= minScore + 5) {
+      // Scale-in: classic pending flag OR degen with score near/above min (AI can also force add)
+      const degenScale = strategy.scaleInEnabled !== false
+        && (strategy.aiMode === 'degen' || strategy.aiMode === 'super_degen')
+        && entryScore.score >= Math.max(30, minScore - (strategy.aiMode === 'super_degen' ? 10 : 5));
+      if (
+        exit.action === 'hold'
+        && strategy.scaleInEnabled !== false
+        && (
+          (strategy.scaleInPending && entryScore.score >= minScore + 5)
+          || degenScale
+        )
+      ) {
         signal = {
           action: 'add',
           reason: `scale-in ${entryScore.score}/${minScore}`,
@@ -877,6 +888,7 @@ function getContextReport(analysis, entryScore, strategy, riskState, equity, bal
     };
   };
   const posSize = typeof position === 'number' ? position : 0;
+  const hasPos = Math.abs(posSize) > 1e-9;
   const dayStart = riskState?.dayStartEquity;
   const peak = riskState?.peakEquity;
   const dayPnl = dayStart > 0 && equity != null
@@ -885,11 +897,18 @@ function getContextReport(analysis, entryScore, strategy, riskState, equity, bal
   const drawdownPct = peak > 0 && equity != null
     ? ((equity - peak) / peak) * 100
     : null;
+  const maxPosPct = (strategy?.maxPositionPercent ?? 20) / 100;
+  const eq = Number(equity) || 0;
+  const px = Number(price) || 0;
+  const notional = hasPos && px > 0 ? Math.abs(posSize) * px : 0;
+  const maxNotional = eq * maxPosPct;
+  const roomUsd = Math.max(0, maxNotional - notional);
 
   return {
     pair: strategy?.pair || 'ETH',
     price: price ?? null,
     mode: strategy?.mode || 'pro',
+    aiMode: strategy?.aiMode || null,
     analysis: {
       macro: tf(analysis?.macro),
       trend: tf(analysis?.trend),
@@ -904,11 +923,27 @@ function getContextReport(analysis, entryScore, strategy, riskState, equity, bal
       signals: entryScore?.signals || [],
     },
     funding: analysis?.context?.funding ?? null,
-    position: { hasPosition: Math.abs(posSize) > 1e-9, size: posSize },
+    position: {
+      hasPosition: hasPos,
+      size: posSize,
+      side: posSize > 0 ? 'long' : posSize < 0 ? 'short' : 'flat',
+      notionalUsd: notional ? Math.round(notional * 100) / 100 : 0,
+      maxNotionalUsd: Math.round(maxNotional * 100) / 100,
+      roomToAddUsd: Math.round(roomUsd * 100) / 100,
+      scaleInEnabled: strategy?.scaleInEnabled !== false,
+      canAdd: hasPos && posSize > 0 && roomUsd >= 11 && strategy?.scaleInEnabled !== false,
+      hint: hasPos && posSize > 0
+        ? (roomUsd >= 11
+          ? 'Puoi decision=add per incrementare size fino a roomToAddUsd'
+          : 'Posizione al tetto maxPosition — no add')
+        : 'Flat — usa decision=enter per aprire',
+    },
     strategy: {
       active: !!strategy?.active,
       maxDailyLossPercent: strategy?.maxDailyLossPercent ?? null,
       riskPerTradePercent: strategy?.riskPerTradePercent ?? null,
+      maxPositionPercent: strategy?.maxPositionPercent ?? null,
+      scaleInEnabled: strategy?.scaleInEnabled !== false,
     },
     risk: {
       circuitBreaker: !!riskState?.circuitBreaker,

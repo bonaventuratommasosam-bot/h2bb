@@ -277,7 +277,9 @@ async function _runTickInternal() {
     } else if (signal.action === 'buy' || signal.action === 'add') {
       const conf = aiDecision.confidence ?? 0;
       const approved = aiDecision.entryOverride?.approved !== false;
-      const enterOk = aiDecision.decision === 'enter' && conf >= enterMinConf && approved;
+      const wantsBuy = aiDecision.decision === 'enter' || aiDecision.decision === 'add'
+        || (signal.action === 'add' && aiDecision.decision === 'enter');
+      const enterOk = wantsBuy && conf >= enterMinConf && approved;
 
       if (aiDecision.decision === 'ta_fallback') {
         console.log(`[AI-DECISION] ta_fallback — eseguo buy TA`);
@@ -287,20 +289,21 @@ async function _runTickInternal() {
           shared.strategy.lastSignal = signal;
           shared.strategy.tp1Taken = false;
           shared.strategy.trailingPeak = out.price ?? price;
-          shared.strategy.positionLeg = 'full';
-          shared.strategy.scaleInPending = false;
+          shared.strategy.positionLeg = signal.action === 'add' ? 'add' : 'full';
+          shared.strategy.scaleInPending = signal.action === 'buy';
           if (res.trade) notifyOwner(null, null, res.trade, signal);
         }
       } else if (enterOk && out.sizing?.amount) {
-        console.log(`[AI-DECISION] ENTER conf=${conf}≥${enterMinConf} — ${aiDecision.reason}`);
+        console.log(`[AI-DECISION] ${signal.action.toUpperCase()} conf=${conf}≥${enterMinConf} — ${aiDecision.reason}`);
         const res = await executeMarketBuy(shared.strategy.pair, out.sizing.amount);
         if (res.ok) {
           shared.strategy.lastTradeAt = Date.now();
           shared.strategy.lastSignal = { ...signal, reason: `${signal.reason} | AI:${aiDecision.reason}`, aiConfidence: conf };
           shared.strategy.tp1Taken = false;
           shared.strategy.trailingPeak = out.price ?? price;
-          shared.strategy.positionLeg = 'full';
-          shared.strategy.scaleInPending = false;
+          shared.strategy.positionLeg = signal.action === 'add' ? 'add' : 'full';
+          // After first entry, allow AI/TA scale-in later
+          if (signal.action === 'buy') shared.strategy.scaleInPending = true;
           if (res.trade) notifyOwner(null, null, res.trade, shared.strategy.lastSignal);
         } else {
           console.log(`[AI-DECISION] Buy fallito: ${res.error}`);
@@ -310,48 +313,93 @@ async function _runTickInternal() {
         shared.strategy.lastSignal = { action: 'hold', reason: `AI ${aiDecision.decision}: ${aiDecision.reason}`, score: conf };
       }
     } else if (
+      // AI force: open (flat) OR scale-in (already long) when degen + conf ok
       degen
       && shared.strategy.aiForceEntryEnabled !== false
-      && aiDecision.decision === 'enter'
+      && (aiDecision.decision === 'enter' || aiDecision.decision === 'add')
       && (aiDecision.confidence ?? 0) >= enterMinConf
       && aiDecision.entryOverride?.approved !== false
-      && Math.abs(posNow) < 1e-9
       && riskManager.checkCanTrade(shared.strategy, shared.riskState, equityNow).allowed
     ) {
-      // Degen: AI may force entry even when TA said hold (soft macro / score near threshold)
       try {
         const px = out.price ?? price;
-        const sizing = riskManager.computeBudgetOrderSize({
-          equity: equityNow,
-          cash: shared.balance?.amount ?? equityNow,
-          price: px,
-          strategy: shared.strategy,
-          entryScore: entryScore || { score: aiDecision.confidence },
-        });
-        if (sizing.amount > 0 && sizing.usd >= (parseFloat(process.env.MIN_NOTIONAL_USD) || 11)) {
-          console.log(`[AI-DECISION] DEGEN FORCE ENTER conf=${aiDecision.confidence} size=${sizing.amount.toFixed(4)} — ${aiDecision.reason}`);
-          const res = await executeMarketBuy(shared.strategy.pair, sizing.amount);
-          if (res.ok) {
-            shared.strategy.lastTradeAt = Date.now();
-            shared.strategy.lastSignal = {
-              action: 'buy',
-              reason: `AI degen force: ${aiDecision.reason}`,
-              score: aiDecision.confidence,
-              reasonCode: 'ai_degen_enter',
-            };
-            shared.strategy.tp1Taken = false;
-            shared.strategy.trailingPeak = px;
-            shared.strategy.positionLeg = 'full';
-            shared.strategy.scaleInPending = false;
-            if (res.trade) notifyOwner(null, null, res.trade, shared.strategy.lastSignal);
-          } else {
-            console.log(`[AI-DECISION] Degen buy fallito: ${res.error}`);
-          }
+        const hasPos = Math.abs(posNow) > 1e-9;
+        // add while flat → treat as open; enter while long → scale-in if enabled
+        const isAdd = hasPos && posNow > 0 && (
+          aiDecision.decision === 'add'
+          || (aiDecision.decision === 'enter' && shared.strategy.scaleInEnabled !== false)
+        );
+        const isOpen = !hasPos && (aiDecision.decision === 'enter' || aiDecision.decision === 'add');
+
+        if (hasPos && posNow < 0) {
+          console.log('[AI-DECISION] skip force buy — short position not supported for AI add');
+        } else if (hasPos && !isAdd) {
+          console.log(`[AI-DECISION] ${aiDecision.decision} conf=${aiDecision.confidence} — already in position, no add`);
+        } else if (!isAdd && !isOpen) {
+          console.log(`[AI-DECISION] skip force — flat and decision=${aiDecision.decision}`);
         } else {
-          console.log(`[AI-DECISION] Degen enter skip size: ${sizing.reason || 'insufficient'}`);
+          // Size: full budget when flat; fraction of room when scaling in
+          let sizing = riskManager.computeBudgetOrderSize({
+            equity: equityNow,
+            cash: shared.balance?.amount ?? equityNow,
+            price: px,
+            strategy: shared.strategy,
+            entryScore: entryScore || { score: aiDecision.confidence },
+          });
+          if (isAdd) {
+            const maxPosPct = Math.min(
+              (shared.strategy.maxPositionPercent ?? 25) / 100,
+              (parseFloat(process.env.HARD_CAP_MAX_POSITION) || 100) / 100
+            );
+            const currentNtl = Math.abs(posNow) * px;
+            const room = Math.max(0, equityNow * maxPosPct - currentNtl);
+            // Scale-in: 40–70% of normal size, capped by room
+            const addUsd = Math.min(
+              room,
+              Math.max(
+                parseFloat(process.env.MIN_NOTIONAL_USD) || 11,
+                (sizing.usd || 0) * (shared.strategy.aiMode === 'super_degen' ? 0.7 : 0.5)
+              )
+            );
+            if (addUsd + 1e-9 < (parseFloat(process.env.MIN_NOTIONAL_USD) || 11) || room < 11) {
+              sizing = { amount: 0, usd: 0, reason: `no room to add (room $${room.toFixed(2)})` };
+            } else {
+              sizing = {
+                usd: Math.floor(addUsd * 100) / 100,
+                amount: (Math.floor(addUsd * 100) / 100) / px,
+                reason: 'ai_scale_in',
+              };
+            }
+          }
+
+          const minN = parseFloat(process.env.MIN_NOTIONAL_USD) || 11;
+          if (sizing.amount > 0 && sizing.usd >= minN) {
+            const tag = isAdd ? 'SCALE-IN' : 'FORCE ENTER';
+            console.log(`[AI-DECISION] DEGEN ${tag} conf=${aiDecision.confidence} size=${sizing.amount.toFixed(4)} ($${sizing.usd}) — ${aiDecision.reason}`);
+            const res = await executeMarketBuy(shared.strategy.pair, sizing.amount);
+            if (res.ok) {
+              shared.strategy.lastTradeAt = Date.now();
+              shared.strategy.lastSignal = {
+                action: isAdd ? 'add' : 'buy',
+                reason: `AI degen ${isAdd ? 'scale-in' : 'force'}: ${aiDecision.reason}`,
+                score: aiDecision.confidence,
+                reasonCode: isAdd ? 'ai_degen_add' : 'ai_degen_enter',
+              };
+              shared.strategy.tp1Taken = false;
+              shared.strategy.trailingPeak = px;
+              shared.strategy.positionLeg = isAdd ? 'add' : 'full';
+              shared.strategy.scaleInPending = true;
+              shared.strategy.scaleInEnabled = true;
+              if (res.trade) notifyOwner(null, null, res.trade, shared.strategy.lastSignal);
+            } else {
+              console.log(`[AI-DECISION] Degen ${tag} fallito: ${res.error}`);
+            }
+          } else {
+            console.log(`[AI-DECISION] Degen ${isAdd ? 'add' : 'enter'} skip size: ${sizing.reason || 'insufficient'}`);
+          }
         }
       } catch (e) {
-        console.error('[AI-DECISION] degen force enter:', e.message);
+        console.error('[AI-DECISION] degen force enter/add:', e.message);
       }
     } else if (aiDecision.decision === 'adapt' || aiDecision.decision === 'hold') {
       console.log(`[AI-DECISION] ${aiDecision.decision} conf=${aiDecision.confidence} — ${aiDecision.reason}`);

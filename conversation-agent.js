@@ -225,8 +225,12 @@ function parseDecisionJson(raw) {
 
 function normalizeDecision(obj) {
   if (!obj || typeof obj !== 'object') return { ...AI_DECISION_FALLBACK };
-  const decision = String(obj.decision || 'hold').toLowerCase();
-  const allowed = ['adapt', 'enter', 'exit', 'hold', 'ta_fallback'];
+  let decision = String(obj.decision || 'hold').toLowerCase();
+  // aliases for scale-in
+  if (decision === 'scale_in' || decision === 'scalein' || decision === 'increase') {
+    decision = 'add';
+  }
+  const allowed = ['adapt', 'enter', 'add', 'exit', 'hold', 'ta_fallback'];
   const sc = obj.strategyChanges || {};
   return {
     decision: allowed.includes(decision) ? decision : 'hold',
@@ -276,20 +280,23 @@ async function evaluateDecision(contextReport, strategy = {}) {
       degenExtra = '\n' + degenSystemPromptExtra(strategy);
       const em = getAiEnterMinConfidence(strategy);
       const label = isSuperDegenMode(strategy) || mode === 'super_degen' ? 'SUPER DEGEN' : 'DEGEN';
-      enterHint = `MODALITÀ ${label}: se confidente ≥${em} usa decision=enter. Preferisci enter/adapt a hold.`;
+      enterHint = `MODALITÀ ${label}: conf≥${em} → enter (flat) o add (già in posizione). Puoi INCREMENTARE la size. Preferisci enter/add/adapt a hold.`;
       temperature = isSuperDegenMode(strategy) || mode === 'super_degen' ? 0.7 : 0.55;
     }
   } catch { /* optional */ }
 
-  const system = `Sei Hermes, trader AI autonomo in italiano. TU gestisci la strategia: legi il report e decidi.
+  const system = `Sei Hermes, trader AI autonomo in italiano. TU gestisci la strategia: leggi il report e decidi.
 Puoi modificare parametri strategia (solo i campi in strategyChanges, null = non toccare).
 ${enterHint}
+decision=enter: apri long se flat.
+decision=add: INCREMENTA (scale-in) se hai già una posizione long e vuoi più size (fino a maxPosition / hard caps).
 decision=exit solo se posizione aperta e serve uscire.
-decision=adapt per cambiare parametri senza entrare (usa spesso: sei il risk/strategy manager).
+decision=adapt per cambiare parametri senza trade (sei risk/strategy manager).
+Se position.hasPosition=true e il momentum regge, puoi usare decision=add (non solo hold).
 ${degenExtra}
 Rispondi SOLO con JSON valido, niente markdown, niente testo fuori dal JSON.
 Schema:
-{"decision":"adapt|enter|exit|hold","reason":"max 2 frasi italiano","confidence":0-100,"strategyChanges":{"minConfidenceScore":null,"rsiOversold":null,"rsiOverbought":null,"atrStopMultiplier":null,"riskPerTradePercent":null,"maxPositionPercent":null},"entryOverride":{"approved":true,"reason":null},"exitOverride":{"force":false,"reason":null}}`;
+{"decision":"adapt|enter|add|exit|hold","reason":"max 2 frasi italiano","confidence":0-100,"strategyChanges":{"minConfidenceScore":null,"rsiOversold":null,"rsiOverbought":null,"atrStopMultiplier":null,"riskPerTradePercent":null,"maxPositionPercent":null},"entryOverride":{"approved":true,"reason":null},"exitOverride":{"force":false,"reason":null}}`;
 
   const user = `Report trading (JSON):\n${JSON.stringify(contextReport)}`;
 
