@@ -588,6 +588,28 @@ async function runTick(ctx) {
       if (exit.updateTrailingPeak != null) strategy.trailingPeak = exit.updateTrailingPeak;
       else if (price > (strategy.trailingPeak || 0)) strategy.trailingPeak = price;
 
+      // Opzione 1 — log livelli di uscita (stop/TP) ogni tick in posizione
+      try {
+        const { computeExitLevels } = require('./lib/position-room');
+        const atrVal = analysis.entry?.ok ? analysis.entry.atr : price * 0.02;
+        const lv = computeExitLevels({
+          entryPrice,
+          price,
+          atr: atrVal,
+          strategy,
+          positionSign: position > 0 ? 1 : -1,
+        });
+        if (lv.ok) {
+          onLog(
+            `[EXIT-EVAL] ${exit.action} urg=${exit.urgency || 0} `
+            + `pnl=${lv.movePct >= 0 ? '+' : ''}${lv.movePct}% `
+            + `stop@${lv.stopPx} (−${lv.stopPct}%) `
+            + `tp1@${lv.tp1Px} tp2@${lv.tp2Px}`
+            + (exit.action === 'sell' ? ` → ${exit.reason}` : ` · ${exit.reason || 'hold'}`)
+          );
+        }
+      } catch { /* non blocca */ }
+
       // AI Exit — broader grey zone for autonomy (urgency 35–60)
       if (
         aiOn
@@ -616,12 +638,13 @@ async function runTick(ctx) {
             },
             fundingRate: analysis.context?.funding,
           });
-          if (aiExit?.action === 'sell' && (aiExit.confidence ?? 0) >= 50) {
+          const exitMinConf = (strategy.aiMode === 'super_degen' || strategy.aiMode === 'degen') ? 45 : 50;
+          if (aiExit?.action === 'sell' && (aiExit.confidence ?? 0) >= exitMinConf) {
             exit.urgency = 60;
             exit.action = 'sell';
             exit.reason = `AI-EXIT: ${aiExit.reasoning}`;
             exit.reasonCode = REASON.AI_EXIT;
-            onLog(`[AI-EXIT] Vendi (conf ${aiExit.confidence}) — ${aiExit.reasoning}`);
+            onLog(`[AI-EXIT] Vendi (conf ${aiExit.confidence}≥${exitMinConf}) — ${aiExit.reasoning}`);
           }
         } catch (err) {
           // error non blocca
@@ -798,14 +821,19 @@ async function runTick(ctx) {
     if ((signal.action === 'buy' || signal.action === 'add') && (signal.action === 'buy' ? !hasPosition : hasPosition)) {
       const cash = ctx.balance?.amount ?? equity;
       const sizing = risk.computeBudgetOrderSize({
-        equity, cash, price, strategy, entryScore,
+        equity,
+        cash,
+        price,
+        strategy,
+        entryScore,
+        positionSize: hasPosition ? position : 0,
       });
       let orderAmount = sizing.amount;
       // Regime Router: applica size multiplier
       if (sizeMultiplier !== 1.0 && orderAmount > 0) {
         orderAmount = orderAmount * sizeMultiplier;
       }
-      const notional = sizing.usd || orderAmount * price;
+      const notional = orderAmount * price;
 
       // IMPROVEMENT: usa costante MIN_NOTIONAL_USD invece di magic number 10
       if (!orderAmount || notional < MIN_NOTIONAL_USD) {
@@ -819,7 +847,10 @@ async function runTick(ctx) {
         return { signal: strategy.lastSignal, result: null, analysis };
       }
 
-      onLog(`[PRO] Size auto: ${orderAmount.toFixed(4)} ETH (~$${notional.toFixed(2)}, ${Math.round((sizing.deployFraction || 0) * 100)}% del budget $${(sizing.budget ?? cash).toFixed(2)})`);
+      onLog(
+        `[PRO] Size auto: ${orderAmount.toFixed(6)} ${pair} (~$${notional.toFixed(2)}, `
+        + `${Math.round((sizing.deployFraction || 0) * 100)}% del budget $${(sizing.budget ?? cash).toFixed(2)})`
+      );
 
     // Defer buy to AI decision layer when requested
     if (ctx.deferExecution) {
@@ -897,12 +928,38 @@ function getContextReport(analysis, entryScore, strategy, riskState, equity, bal
   const drawdownPct = peak > 0 && equity != null
     ? ((equity - peak) / peak) * 100
     : null;
-  const maxPosPct = (strategy?.maxPositionPercent ?? 20) / 100;
   const eq = Number(equity) || 0;
   const px = Number(price) || 0;
-  const notional = hasPos && px > 0 ? Math.abs(posSize) * px : 0;
-  const maxNotional = eq * maxPosPct;
-  const roomUsd = Math.max(0, maxNotional - notional);
+  let room = {
+    currentNotionalUsd: hasPos && px > 0 ? Math.abs(posSize) * px : 0,
+    maxNotionalUsd: eq * ((strategy?.maxPositionPercent ?? 20) / 100),
+    roomNotionalUsd: 0,
+    leverage: 20,
+    canAdd: false,
+  };
+  try {
+    const { computePositionRoom, computeExitLevels } = require('./lib/position-room');
+    room = computePositionRoom({
+      equity: eq,
+      price: px,
+      positionSize: posSize,
+      strategy,
+    });
+  } catch { /* fallback above */ }
+
+  let exitPreview = null;
+  try {
+    if (hasPos && analysis?.entry) {
+      const { computeExitLevels } = require('./lib/position-room');
+      exitPreview = computeExitLevels({
+        entryPrice: analysis.entry.price || px,
+        price: px,
+        atr: analysis.entry.atr,
+        strategy,
+        positionSign: posSize >= 0 ? 1 : -1,
+      });
+    }
+  } catch { /* optional */ }
 
   return {
     pair: strategy?.pair || 'ETH',
@@ -927,14 +984,16 @@ function getContextReport(analysis, entryScore, strategy, riskState, equity, bal
       hasPosition: hasPos,
       size: posSize,
       side: posSize > 0 ? 'long' : posSize < 0 ? 'short' : 'flat',
-      notionalUsd: notional ? Math.round(notional * 100) / 100 : 0,
-      maxNotionalUsd: Math.round(maxNotional * 100) / 100,
-      roomToAddUsd: Math.round(roomUsd * 100) / 100,
+      notionalUsd: room.currentNotionalUsd,
+      maxNotionalUsd: room.maxNotionalUsd,
+      roomToAddUsd: room.roomNotionalUsd,
+      leverage: room.leverage,
       scaleInEnabled: strategy?.scaleInEnabled !== false,
-      canAdd: hasPos && posSize > 0 && roomUsd >= 11 && strategy?.scaleInEnabled !== false,
+      canAdd: hasPos && posSize > 0 && room.canAdd && strategy?.scaleInEnabled !== false,
+      exitLevels: exitPreview,
       hint: hasPos && posSize > 0
-        ? (roomUsd >= 11
-          ? 'Puoi decision=add per incrementare size fino a roomToAddUsd'
+        ? (room.canAdd
+          ? `Puoi decision=add fino a ~$${room.roomNotionalUsd} notional (lev ${room.leverage}x)`
           : 'Posizione al tetto maxPosition — no add')
         : 'Flat — usa decision=enter per aprire',
     },

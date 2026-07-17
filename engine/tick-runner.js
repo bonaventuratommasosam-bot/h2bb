@@ -338,35 +338,31 @@ async function _runTickInternal() {
         } else if (!isAdd && !isOpen) {
           console.log(`[AI-DECISION] skip force — flat and decision=${aiDecision.decision}`);
         } else {
-          // Size: full budget when flat; fraction of room when scaling in
+          // Size: full budget when flat; fraction of room when scaling in (leverage-aware)
           let sizing = riskManager.computeBudgetOrderSize({
             equity: equityNow,
             cash: shared.balance?.amount ?? equityNow,
             price: px,
             strategy: shared.strategy,
             entryScore: entryScore || { score: aiDecision.confidence },
+            positionSize: isAdd ? posNow : 0,
           });
-          if (isAdd) {
-            const maxPosPct = Math.min(
-              (shared.strategy.maxPositionPercent ?? 25) / 100,
-              (parseFloat(process.env.HARD_CAP_MAX_POSITION) || 100) / 100
-            );
-            const currentNtl = Math.abs(posNow) * px;
-            const room = Math.max(0, equityNow * maxPosPct - currentNtl);
-            // Scale-in: 40–70% of normal size, capped by room
-            const addUsd = Math.min(
-              room,
-              Math.max(
-                parseFloat(process.env.MIN_NOTIONAL_USD) || 11,
-                (sizing.usd || 0) * (shared.strategy.aiMode === 'super_degen' ? 0.7 : 0.5)
-              )
-            );
-            if (addUsd + 1e-9 < (parseFloat(process.env.MIN_NOTIONAL_USD) || 11) || room < 11) {
-              sizing = { amount: 0, usd: 0, reason: `no room to add (room $${room.toFixed(2)})` };
+          if (isAdd && sizing.amount > 0) {
+            // Scale-in clip: 50–70% of allowed room size
+            const frac = shared.strategy.aiMode === 'super_degen' ? 0.7 : 0.5;
+            const usd = Math.floor((sizing.usd || 0) * frac * 100) / 100;
+            const minN = parseFloat(process.env.MIN_NOTIONAL_USD) || 11;
+            if (usd + 1e-9 < minN) {
+              // keep full room size if fraction too small but room ok
+              if ((sizing.usd || 0) >= minN) {
+                /* keep sizing as-is */
+              } else {
+                sizing = { amount: 0, usd: 0, reason: sizing.reason || 'scale-in too small' };
+              }
             } else {
               sizing = {
-                usd: Math.floor(addUsd * 100) / 100,
-                amount: (Math.floor(addUsd * 100) / 100) / px,
+                usd,
+                amount: usd / px,
                 reason: 'ai_scale_in',
               };
             }

@@ -152,7 +152,10 @@ function recordTradeResult(state, pnl, strategy) {
   return s;
 }
 
-function computeBudgetOrderSize({ equity, cash, price, strategy, entryScore }) {
+function computeBudgetOrderSize({
+  equity, cash, price, strategy, entryScore,
+  positionSize = 0, leverage = null,
+}) {
   // FIX: usa costante condivisa invece di MIN_NOTIONAL = 10 hardcoded
   const reservePct = strategy.cashReservePercent ?? 8;
   const budget = Math.min(equity || cash || 0, cash || equity || 0);
@@ -171,8 +174,42 @@ function computeBudgetOrderSize({ equity, cash, price, strategy, entryScore }) {
     deployFraction = Math.min(0.92, 0.55 + extra * 0.02);
   }
 
-  const maxPosPct = Math.min(strategy.maxPositionPercent ?? 20, HARD_CAPS.maxPositionPercent) / 100;
-  let usd = Math.min(available * deployFraction, budget * maxPosPct);
+  // Risk $ for this clip (notional of order, pre-leverage semantics for HL market size)
+  const riskPct = Math.min(strategy.riskPerTradePercent ?? 0.5, HARD_CAPS.riskPerTradePercent) / 100;
+  let usd = Math.min(available * deployFraction, budget * Math.max(riskPct * 4, 0.15));
+
+  // Cap by remaining room under maxPosition (margin-aware, levered notional)
+  try {
+    const { computePositionRoom } = require('./lib/position-room');
+    const room = computePositionRoom({
+      equity: budget,
+      price,
+      positionSize,
+      strategy,
+      leverage,
+    });
+    if (room.roomNotionalUsd + 1e-9 < MIN_NOTIONAL_USD && Math.abs(positionSize) > 1e-12) {
+      return {
+        amount: 0,
+        usd: 0,
+        deployFraction,
+        budget,
+        available,
+        room,
+        reason: `no room (notional $${room.currentNotionalUsd} / max $${room.maxNotionalUsd} @ ${room.leverage}x)`,
+      };
+    }
+    if (room.roomNotionalUsd > 0) {
+      usd = Math.min(usd, room.roomNotionalUsd);
+    } else {
+      // flat: first entry limited by max notional
+      usd = Math.min(usd, room.maxNotionalUsd || usd);
+    }
+  } catch {
+    const maxPosPct = Math.min(strategy.maxPositionPercent ?? 20, HARD_CAPS.maxPositionPercent) / 100;
+    usd = Math.min(usd, budget * maxPosPct);
+  }
+
   // Always try to meet exchange min notional with buffer (MIN_NOTIONAL_USD default 11)
   if (usd < MIN_NOTIONAL_USD) {
     usd = Math.min(MIN_NOTIONAL_USD, available);
@@ -180,7 +217,6 @@ function computeBudgetOrderSize({ equity, cash, price, strategy, entryScore }) {
   // Round down to cents then ensure still >= min after float noise
   usd = Math.floor(usd * 100) / 100;
   if (usd + 1e-9 < MIN_NOTIONAL_USD) {
-    // bump one cent if available allows, else fail
     if (available >= MIN_NOTIONAL_USD) {
       usd = MIN_NOTIONAL_USD;
     } else {
@@ -188,6 +224,8 @@ function computeBudgetOrderSize({ equity, cash, price, strategy, entryScore }) {
         amount: 0,
         usd: 0,
         deployFraction,
+        budget,
+        available,
         reason: `sotto minimo exchange $${MIN_NOTIONAL_USD} (avail $${available.toFixed(2)})`,
       };
     }
