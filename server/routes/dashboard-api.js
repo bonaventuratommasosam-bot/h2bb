@@ -345,6 +345,22 @@ function withTimeout(promise, ms, fallback) {
   ]);
 }
 
+/** Spot TV reference for the bot pair (perp mid is always HL allMids). */
+function chartRefForPair(pair) {
+  const p = String(pair || 'ETH').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const map = {
+    ETH: 'COINBASE:ETHUSD',
+    BTC: 'COINBASE:BTCUSD',
+    SOL: 'COINBASE:SOLUSD',
+    ARB: 'COINBASE:ARBUSD',
+    DOGE: 'COINBASE:DOGEUSD',
+    AVAX: 'COINBASE:AVAXUSD',
+    LINK: 'COINBASE:LINKUSD',
+    HYPE: 'BINANCE:HYPEUSDT',
+  };
+  return map[p] || `COINBASE:${p}USD`;
+}
+
 router.get('/api/ping', (_req, res) => {
   res.json({
     ok: true,
@@ -599,7 +615,7 @@ router.get('/api/dashboard', async (req, res) => {
           }
         : null,
       notes: [
-        'Mark mid = Hyperliquid allMids (perp). TradingView chart = COINBASE:ETHUSD spot reference.',
+        `Mark mid = Hyperliquid allMids (perp ${pair}). TradingView chart = ${chartRefForPair(pair)} spot reference.`,
         'RSI/score derived from HL candleSnapshot (computed, not exchange-native fields).',
         'signalLive is current score/bias; strategy.lastDecision may be stale history.',
       ],
@@ -709,7 +725,7 @@ router.get('/api/dashboard', async (req, res) => {
         reasonCode: liveReasonCode,
         priceSource: price != null ? 'hyperliquid-allMids' : 'unavailable',
         venue: 'hyperliquid-perp',
-        chartRef: 'COINBASE:ETHUSD',
+        chartRef: chartRefForPair(pair),
         indicatorsNote: 'RSI/score da candele HL (candleSnapshot), non numeri inventati',
         snapshotAt: marketSnap?.at || null,
       },

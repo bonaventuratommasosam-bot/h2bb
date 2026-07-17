@@ -75,9 +75,14 @@
     return tvLoadPromise;
   }
 
-  function setTvMeta(symbol) {
+  function setTvMeta(symbol, pair) {
     if ($('tv-symbol-pill')) $('tv-symbol-pill').textContent = symbol || '—';
     if ($('tv-bar-src')) $('tv-bar-src').textContent = symbol ? `TradingView · ${symbol}` : 'TradingView';
+    const label = $('tv-bar-label');
+    if (label) {
+      const p = String(pair || '').toUpperCase() || '—';
+      label.textContent = `Live chart · ${p} perp mid on panel · TV spot ref`;
+    }
     const link = $('tv-fallback-link');
     if (link && symbol) {
       link.href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(symbol)}`;
@@ -101,7 +106,8 @@
     const iv = interval || tvInterval || '15';
     tvSymbolCurrent = sym;
     tvInterval = iv;
-    setTvMeta(sym);
+    const pairGuess = String(sym).split(':').pop()?.replace(/USD|USDT/g, '') || '';
+    setTvMeta(sym, pairGuess);
     showTvFallback(false);
 
     // recreate container (TV widget owns the node)
@@ -151,16 +157,17 @@
       await loadTvScript();
     } catch (e) {
       console.error('[TV] load', e);
-      setTvMeta(symbol);
+      setTvMeta(symbol, pair);
       showTvFallback(true);
       return;
     }
     // only remount if symbol changed (avoid destroy on every poll)
     if (tvReady && tvSymbolCurrent === symbol) {
-      setTvMeta(symbol);
+      setTvMeta(symbol, pair);
       return;
     }
     mountTradingView(symbol, tvInterval);
+    setTvMeta(symbol, pair);
   }
 
   function bindTvTimeframes() {
@@ -180,12 +187,17 @@
     const el = $('error-banner');
     if (!el) return;
     el.className = 'error-banner';
+    el.dataset.kind = 'offline';
     el.innerHTML = html;
     el.hidden = !html;
   }
   function hideBanner() {
     const el = $('error-banner');
-    if (el) el.hidden = true;
+    if (!el) return;
+    // Don't clear risk-halt banner from a successful poll — renderMeta owns it
+    if (el.dataset.kind === 'risk') return;
+    el.hidden = true;
+    el.textContent = '';
   }
 
   /** +$1,234.56 / −$1,234.56 / $0.00 */
@@ -569,12 +581,30 @@
         badge.textContent = 'PAUSED';
         badge.className = 'section-badge off';
       } else if (eng.circuitBreaker || eng.riskBlocked) {
-        badge.textContent = 'BLOCKED';
+        badge.textContent = 'RISK HALT';
         badge.className = 'section-badge blocked';
       } else {
         badge.textContent = 'RUNNING';
         badge.className = 'section-badge on';
       }
+    }
+
+    // Clear banner when risk-halted so user sees why numbers look “stuck”
+    const banner = $('error-banner');
+    if (banner) {
+      if (eng.circuitBreaker || eng.riskBlocked || data.risk?.blocked) {
+        const why = eng.circuitReason || data.risk?.circuitReason || data.signalLive?.reason || 'risk block';
+        banner.hidden = false;
+        banner.className = 'error-banner warn';
+        banner.textContent = `Risk halt · ${why} · flat · no new entries until day reset or operator resume`;
+      } else if (!banner.classList.contains('error') || banner.dataset.kind === 'risk') {
+        // only clear our risk banner, not offline errors (offline uses renderError)
+        if (banner.dataset.kind === 'risk' || /Risk halt/i.test(banner.textContent || '')) {
+          banner.hidden = true;
+          banner.textContent = '';
+        }
+      }
+      if (eng.circuitBreaker || eng.riskBlocked) banner.dataset.kind = 'risk';
     }
 
     const status = $('connect-status');
@@ -610,11 +640,15 @@
     }
     const dayEl = $('panel-day-pnl');
     if (dayEl) {
+      // Prefer equity-vs-dayStart (pnl.*) — same formula as trust/risk day line
       const dUsd = pnl.dayUsd != null ? pnl.dayUsd : data.risk?.dayPnlUsd;
       const dPct = pnl.dayPct != null ? pnl.dayPct : data.risk?.dayPnlPct;
       if (dUsd != null || dPct != null) {
         dayEl.textContent = `day ${dUsd != null ? money(dUsd) : '—'}${dPct != null ? ` (${fmtPct(dPct)})` : ''}`;
         dayEl.className = 'mono ' + pnlClass(dUsd != null ? dUsd : dPct);
+        dayEl.title = data.risk?.circuitBreaker
+          ? `Circuit: ${data.risk.circuitReason || 'tripped'} · current day PnL from equity`
+          : 'Day PnL = equity − day start equity';
       } else {
         dayEl.textContent = 'day —';
         dayEl.className = 'mono';
@@ -687,9 +721,12 @@
 
     const notes = $('market-notes');
     if (notes) {
+      const pair = (mkt.pair || data.engine?.pair || '—').toString().toUpperCase();
       notes.textContent = [
+        `pair ${pair}`,
         mkt.venue ? `venue ${mkt.venue}` : null,
-        mkt.chartRef ? `TV ref ${mkt.chartRef}` : null,
+        mkt.chartRef ? `TV ${mkt.chartRef}` : null,
+        mkt.priceSource || null,
         mkt.baseMinScore != null && mkt.effectiveMin != null && mkt.baseMinScore !== mkt.effectiveMin
           ? `min ${mkt.effectiveMin} (base ${mkt.baseMinScore})`
           : null,
@@ -1222,8 +1259,7 @@
       tradeCanvas.addEventListener('mouseleave', onTradeChartLeave);
     }
     bindTvTimeframes();
-    // mount TV immediately with ETH, then pair sync from API
-    ensureTradingView('ETH');
+    // Wait for API pair (scanner may switch ETH/BTC/SOL) — avoid wrong ETH chart flash
     tickClock();
     setInterval(tickClock, 1000);
     fetchDashboard();

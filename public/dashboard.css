@@ -1098,4 +1098,9 @@ td.mono, th.num, td.num { font-family: var(--mono); }
   border-bottom: 1px solid rgba(240, 101, 112, 0.35);
   backdrop-filter: blur(8px);
 }
+.error-banner.warn {
+  background: rgba(60, 45, 12, 0.96);
+  color: #fde68a;
+  border-bottom-color: rgba(224, 176, 74, 0.4);
+}
 .error-banner[hidden] { display: none !important; }
