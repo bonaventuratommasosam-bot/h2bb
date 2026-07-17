@@ -258,9 +258,40 @@ function scoreExit(analysis, position, entryPrice, price, strategy) {
     return { action: 'sell', partial: false, reason: `stop ATR -${Math.abs(move).toFixed(2)}%`, urgency: 100 };
   }
 
+  // Fixed % take-profit (profit priority / operator TP) — bank gains without waiting ATR moon
+  const fixedTp = Number(strategy.takeProfitPercent);
+  if (Number.isFinite(fixedTp) && fixedTp > 0) {
+    if (move >= fixedTp) {
+      return {
+        action: 'sell',
+        partial: false,
+        reason: `TP fisso +${move.toFixed(2)}% (target ${fixedTp}%)`,
+        urgency: 95,
+      };
+    }
+    // Partial bank at half target in profit mode
+    if (
+      (strategy.profitPriority || strategy.aiMode === 'profit')
+      && move >= fixedTp * 0.5
+      && !strategy.tp1Taken
+    ) {
+      return {
+        action: 'sell',
+        partial: true,
+        partialPercent: strategy.partialTakeProfitPercent ?? 50,
+        reason: `TP parziale +${move.toFixed(2)}% (½ di ${fixedTp}%)`,
+        urgency: 75,
+      };
+    }
+  }
+
   const trailActivate = (atr * 1.5 / entryPrice) * 100;
   const trailDist = (atr * trailMult / entryPrice) * 100;
-  if (move >= trailActivate && strategy.trailingPeak != null) {
+  // Profit mode: trail earlier to lock gains
+  const trailAct = (strategy.profitPriority || strategy.aiMode === 'profit')
+    ? Math.min(trailActivate, 0.4)
+    : trailActivate;
+  if (move >= trailAct && strategy.trailingPeak != null) {
     const dropFromPeak = strategy.trailingPeak - price;
     const trailPct = (dropFromPeak / strategy.trailingPeak) * 100;
     if (trailPct >= trailDist) {

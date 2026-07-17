@@ -272,27 +272,35 @@ async function evaluateDecision(contextReport, strategy = {}) {
     const {
       isDegenMode,
       isSuperDegenMode,
+      isProfitMode,
       getAiEnterMinConfidence,
       degenSystemPromptExtra,
+      profitSystemPromptExtra,
     } = require('./lib/ai-mode');
     const mode = strategy?.aiMode || contextReport?.aiMode;
-    if (isDegenMode(strategy) || mode === 'degen' || mode === 'super_degen') {
+    if (isProfitMode(strategy) || mode === 'profit' || mode === 'standard') {
+      degenExtra = '\n' + profitSystemPromptExtra(strategy);
+      const em = getAiEnterMinConfidence(strategy);
+      enterHint = `MODALITÀ PROFIT (priorità fare soldi): conf≥${em} per enter. In profitto preferisci exit/TP a scale-in. Non aggiungere in perdita.`;
+      temperature = 0.4;
+    } else if (isDegenMode(strategy) || mode === 'degen' || mode === 'super_degen') {
       degenExtra = '\n' + degenSystemPromptExtra(strategy);
       const em = getAiEnterMinConfidence(strategy);
       const label = isSuperDegenMode(strategy) || mode === 'super_degen' ? 'SUPER DEGEN' : 'DEGEN';
-      enterHint = `MODALITÀ ${label}: conf≥${em} → enter (flat) o add (già in posizione). Puoi INCREMENTARE la size. Preferisci enter/add/adapt a hold.`;
+      enterHint = `MODALITÀ ${label}: conf≥${em} → enter/add. Preferisci enter/add/adapt a hold.`;
       temperature = isSuperDegenMode(strategy) || mode === 'super_degen' ? 0.7 : 0.55;
     }
   } catch { /* optional */ }
 
   const system = `Sei Hermes, trader AI autonomo in italiano. TU gestisci la strategia: leggi il report e decidi.
+OBIETTIVO PRIMARIO: massimizzare PnL realizzato (fare soldi), non massimizzare volume di ordini.
 Puoi modificare parametri strategia (solo i campi in strategyChanges, null = non toccare).
 ${enterHint}
-decision=enter: apri long se flat.
-decision=add: INCREMENTA (scale-in) se hai già una posizione long e vuoi più size (fino a maxPosition / hard caps).
-decision=exit solo se posizione aperta e serve uscire.
-decision=adapt per cambiare parametri senza trade (sei risk/strategy manager).
-Se position.hasPosition=true e il momentum regge, puoi usare decision=add (non solo hold).
+decision=enter: apri long se flat e c'è edge.
+decision=add: scale-in solo se già in profitto e room ok.
+decision=exit: chiudi se profitto da bankare o setup rotto.
+decision=adapt: parametri senza trade.
+decision=hold: aspetta (ok se vicino a TP).
 ${degenExtra}
 Rispondi SOLO con JSON valido, niente markdown, niente testo fuori dal JSON.
 Schema:

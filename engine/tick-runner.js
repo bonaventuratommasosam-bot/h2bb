@@ -156,6 +156,29 @@ async function _runTickInternal() {
     writeHeartbeat({ price });
     return;
   }
+  // Fixed % TP even without absolute takeProfit price
+  if (position && Math.abs(position) > 1e-9 && shared.strategy.takeProfitPercent) {
+    try {
+      const entryPx = await getEntryPrice(shared.strategy.pair);
+      const tpPct = Number(shared.strategy.takeProfitPercent);
+      if (entryPx > 0 && Number.isFinite(tpPct) && tpPct > 0) {
+        const movePct = position > 0
+          ? ((price - entryPx) / entryPx) * 100
+          : ((entryPx - price) / entryPx) * 100;
+        if (movePct >= tpPct) {
+          console.log(`[TAKE-PROFIT %] ${shared.strategy.pair} +${movePct.toFixed(2)}% ≥ ${tpPct}%`);
+          const tpRes = await executeMarketSell(shared.strategy.pair, 1);
+          if (tpRes.ok && riskManager.canAutoResumeTrading(shared.riskState)) {
+            await resumeTradingAfterEngineClose();
+          }
+          writeHeartbeat({ price });
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('[TAKE-PROFIT %]', e.message);
+    }
+  }
 
   const tickCtx = {
     strategy: shared.strategy, balance: shared.balance,
@@ -325,7 +348,21 @@ async function _runTickInternal() {
         const px = out.price ?? price;
         const hasPos = Math.abs(posNow) > 1e-9;
         // add while flat → treat as open; enter while long → scale-in if enabled
-        const isAdd = hasPos && posNow > 0 && (
+        // Profit mode: never scale-in when underwater
+        let allowAdd = shared.strategy.scaleInEnabled !== false
+          || shared.strategy.scaleInOnlyInProfit === true;
+        if (hasPos && posNow > 0 && (shared.strategy.profitPriority || shared.strategy.aiMode === 'profit' || shared.strategy.scaleInOnlyInProfit)) {
+          try {
+            const entryPx = await getEntryPrice(shared.strategy.pair);
+            const pxNow = out.price ?? price;
+            if (entryPx > 0 && pxNow > 0 && pxNow < entryPx) {
+              allowAdd = false; // no add in loss
+            } else if (entryPx > 0 && pxNow >= entryPx) {
+              allowAdd = true; // only-in-profit scale-in ok
+            }
+          } catch { /* keep allowAdd */ }
+        }
+        const isAdd = hasPos && posNow > 0 && allowAdd && (
           aiDecision.decision === 'add'
           || (aiDecision.decision === 'enter' && shared.strategy.scaleInEnabled !== false)
         );
