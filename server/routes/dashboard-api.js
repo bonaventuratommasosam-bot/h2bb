@@ -16,6 +16,11 @@ const shared = require('../../state/shared');
 const realData = require('../../lib/real-data');
 const marketData = require('../../market-data');
 const { buildTrustReport } = require('../../lib/trust-report');
+const {
+  renderTrustBadgeSvg,
+  trustBadgeMarkdown,
+  trustBadgeHtml,
+} = require('../../lib/trust-badge');
 
 const router = express.Router();
 
@@ -24,6 +29,158 @@ const HEARTBEAT_FILE = path.join(DATA_DIR, 'cache', 'heartbeat.json');
 /** Cache price chart so 5s dashboard poll does not hammer HL candles. */
 let priceChartCache = { key: null, at: 0, data: null };
 const PRICE_CHART_TTL_MS = 45_000;
+
+/** Last trust report for /api/trust + /badge.svg (avoid HL hammer). */
+let trustCache = { at: 0, trust: null, meta: null };
+const TRUST_CACHE_TTL_MS = 20_000;
+
+function publicBaseUrl(req) {
+  const envBase = process.env.PUBLIC_BASE_URL || process.env.SHOWCASE_URL;
+  if (envBase) return String(envBase).replace(/\/$/, '');
+  const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+  const host = (req.get('x-forwarded-host') || req.get('host') || 'localhost').split(',')[0].trim();
+  return `${proto}://${host}`;
+}
+
+/**
+ * Lightweight trust from in-memory shared state (no HL round-trip).
+ * Used by badge/api when dashboard cache is cold/stale.
+ */
+function buildTrustFromShared() {
+  const dataMode = realData.dataMode();
+  const pair = shared.strategy?.pair || 'ETH';
+  const riskState = shared.riskState || {};
+  const bal = shared.balance || {};
+  const snap = shared.lastTickSnapshot || {};
+  const marketSnap = shared.marketSnapshot || snap.market || null;
+  const entryScore = marketSnap?.entryScore || snap.entryScore || null;
+  const riskBlocked = getRiskBlocked();
+
+  const equity = bal.accountValue ?? bal.amount ?? null;
+  const perpAV = bal.accountValuePerp ?? null;
+  const spotAvail = bal.usdcSpotAvailable ?? null;
+  let equityCheck = null;
+  if (perpAV != null && spotAvail != null && equity != null) {
+    const expected = Number(perpAV) + Number(spotAvail);
+    const delta = Number(equity) - expected;
+    equityCheck = {
+      expected: Math.round(expected * 100) / 100,
+      actual: Math.round(Number(equity) * 100) / 100,
+      delta: Math.round(delta * 100) / 100,
+      ok: Math.abs(delta) < 0.05,
+      formula: 'equity = perp accountValue + spot USDC available',
+    };
+  }
+
+  const price = marketSnap?.price
+    ?? snap.price
+    ?? entryScore?.price
+    ?? null;
+  const pos = Number(snap.position ?? marketSnap?.positionSigned ?? 0);
+  const held = Math.abs(pos);
+  const liveScore = entryScore?.score ?? marketSnap?.score ?? null;
+  const liveMin = entryScore?.effectiveMin
+    ?? marketSnap?.effectiveMin
+    ?? shared.strategy?.minConfidenceScore
+    ?? 65;
+  const liveBias = entryScore?.bias ?? marketSnap?.bias ?? null;
+  const liveSignals = entryScore?.signals ?? marketSnap?.signals ?? [];
+  const liveReasonCode = marketSnap?.reasonCode || entryScore?.reasonCode || null;
+
+  let signalAction = 'wait';
+  let signalReason = (liveSignals || []).slice(0, 2).join(' · ') || 'Evaluating';
+  if (riskBlocked || riskState.circuitBreaker) {
+    signalAction = 'blocked';
+    signalReason = riskState.circuitReason || 'risk block';
+  } else if (!shared.strategy?.active) {
+    signalAction = 'idle';
+    signalReason = 'Engine paused';
+  } else if (held > 1e-9) {
+    signalAction = 'in_position';
+    signalReason = `Holding ${held} ${pair}`;
+  } else if (liveBias === 'blocked') {
+    signalAction = 'blocked';
+    signalReason = liveSignals[0] || 'setup blocked';
+  }
+
+  const lastDec = shared.strategy?.lastDecision || null;
+  let decisionAgeSec = null;
+  if (lastDec?.at) {
+    const t = Date.parse(lastDec.at);
+    if (Number.isFinite(t)) decisionAgeSec = Math.max(0, Math.round((Date.now() - t) / 1000));
+  }
+
+  const signalLive = {
+    action: signalAction,
+    reasonCode: liveReasonCode || signalAction,
+    reason: signalReason,
+    score: liveScore,
+    minScore: liveMin,
+    at: marketSnap?.at || snap.at || new Date().toISOString(),
+    source: 'shared_snapshot',
+  };
+
+  const trust = buildTrustReport({
+    dataMode,
+    readOnly: true,
+    showcase: true,
+    price,
+    priceSource: price != null ? 'shared-snapshot' : null,
+    portfolioOk: bal.source === 'hyperliquid-api' || equity != null,
+    equityCheck,
+    decisionAgeSec,
+    signalLive,
+    position: {
+      side: pos > 0 ? 'long' : pos < 0 ? 'short' : 'flat',
+      size: held,
+      entryPx: null,
+      markPx: price,
+    },
+    engine: {
+      active: !!shared.strategy?.active,
+      operational: !!shared.strategy?.active && !riskBlocked,
+      circuitBreaker: !!riskState.circuitBreaker,
+      riskBlocked,
+    },
+    risk: {
+      circuitBreaker: !!riskState.circuitBreaker,
+      circuitReason: riskState.circuitReason || null,
+      stickyKind: riskState.stickyKind || null,
+    },
+    sources: {
+      price: price != null ? 'shared-snapshot' : 'unavailable',
+      portfolio: bal.source || 'shared',
+    },
+    hardCaps: HARD_CAPS,
+    hardFloors: HARD_FLOORS,
+  });
+
+  return {
+    trust,
+    meta: {
+      pair,
+      dataMode,
+      active: !!shared.strategy?.active,
+      source: 'shared',
+    },
+  };
+}
+
+function getCachedOrSharedTrust() {
+  const age = Date.now() - (trustCache.at || 0);
+  if (trustCache.trust && age < TRUST_CACHE_TTL_MS) {
+    return {
+      trust: trustCache.trust,
+      meta: { ...(trustCache.meta || {}), cacheAgeMs: age, source: trustCache.meta?.source || 'cache' },
+    };
+  }
+  const fresh = buildTrustFromShared();
+  trustCache = { at: Date.now(), trust: fresh.trust, meta: { ...fresh.meta, source: 'shared' } };
+  return {
+    trust: trustCache.trust,
+    meta: { ...trustCache.meta, cacheAgeMs: 0 },
+  };
+}
 
 function tradeTimestampMs(t) {
   const raw = t.timestamp ?? t.ts ?? t.time ?? t.at ?? t.loggedAt;
@@ -479,6 +636,16 @@ router.get('/api/dashboard', async (req, res) => {
       hardCaps: HARD_CAPS,
       hardFloors: HARD_FLOORS,
     });
+    trustCache = {
+      at: Date.now(),
+      trust,
+      meta: {
+        pair,
+        dataMode,
+        active: !!shared.strategy.active,
+        source: 'dashboard',
+      },
+    };
 
     // Normalize trade timestamps for UI
     const tradesOut = trades.slice(-30).reverse().map((t) => ({
@@ -641,5 +808,51 @@ router.get('/api/performance', (req, res) => {
   const pair = req.query.pair || shared.strategy.pair;
   res.json({ ok: true, pair, stats: performance.computeStats(pair) });
 });
+
+/** Lightweight public trust report (cached / shared snapshot). */
+router.get('/api/trust', (req, res) => {
+  try {
+    const { trust, meta } = getCachedOrSharedTrust();
+    const base = publicBaseUrl(req);
+    res.setHeader('Cache-Control', 'public, max-age=15');
+    res.json({
+      ok: true,
+      readOnly: true,
+      showcase: true,
+      ts: new Date().toISOString(),
+      trust,
+      meta,
+      links: {
+        terminal: `${base}/?trust=1`,
+        badge: `${base}/badge.svg`,
+        dashboard: `${base}/api/dashboard`,
+        markdown: trustBadgeMarkdown(base, trust),
+        html: trustBadgeHtml(base),
+      },
+    });
+  } catch (e) {
+    console.error('[TRUST]', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+/** Embeddable SVG badge — also at /api/trust/badge.svg */
+function sendTrustBadge(req, res) {
+  try {
+    const { trust } = getCachedOrSharedTrust();
+    const svg = renderTrustBadgeSvg(trust);
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=30');
+    res.setHeader('X-Trust-Grade', String(trust.grade || ''));
+    res.setHeader('X-Trust-Score', String(trust.score ?? ''));
+    res.setHeader('X-Trust-Status', String(trust.status || ''));
+    res.send(svg);
+  } catch (e) {
+    console.error('[BADGE]', e);
+    res.status(500).type('text/plain').send('badge error');
+  }
+}
+router.get('/badge.svg', sendTrustBadge);
+router.get('/api/trust/badge.svg', sendTrustBadge);
 
 module.exports = router;

@@ -136,6 +136,12 @@
           <p class="trust-headline" id="trust-headline">Loading honesty checks…</p>
           <p class="trust-why" id="trust-why"></p>
           <ul class="trust-checks" id="trust-checks"></ul>
+          <div class="trust-share" id="trust-share">
+            <img id="trust-badge-img" class="trust-badge-img" src="/badge.svg" alt="Hermes trust badge" width="140" height="20" />
+            <button type="button" class="trust-btn" id="trust-copy-md" title="Copy markdown badge">Copy MD</button>
+            <button type="button" class="trust-btn" id="trust-copy-link" title="Copy share link">Copy link</button>
+            <a class="trust-btn trust-btn-link" href="/api/trust" target="_blank" rel="noopener">JSON</a>
+          </div>
           <p class="trust-foot mono" id="trust-foot"></p>
         </section>
 
@@ -306,7 +312,11 @@
         <span class="sep">·</span>
         <span id="last-fetch" class="mono">—</span>
         <span class="sep">·</span>
-        <a href="/api/dashboard" target="_blank" rel="noopener">JSON API</a>
+        <a href="/api/dashboard" target="_blank" rel="noopener">JSON</a>
+        <span class="sep">·</span>
+        <a href="/api/trust" target="_blank" rel="noopener">Trust</a>
+        <span class="sep">·</span>
+        <a href="/badge.svg" target="_blank" rel="noopener">Badge</a>
         <span class="sep">·</span>
         <span class="foot-note">Hyperliquid · read-only</span>
       </footer>

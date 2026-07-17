@@ -300,15 +300,105 @@
     });
   }
 
+  function flashTrustBtn(btn, label) {
+    if (!btn) return;
+    const prev = btn.textContent;
+    btn.textContent = label || 'Copied';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = prev;
+      btn.classList.remove('copied');
+    }, 1400);
+  }
+
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch { /* fall through */ }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+
+  function trustShareOrigin() {
+    return window.location.origin || '';
+  }
+
+  function trustMarkdownSnippet(t) {
+    const origin = trustShareOrigin();
+    const alt = `Hermes trust ${t?.grade || ''} ${t?.score != null ? t.score : ''}`.trim();
+    return `[![${alt}](${origin}/badge.svg)](${origin}/?trust=1)`;
+  }
+
+  function bindTrustShare() {
+    const mdBtn = $('trust-copy-md');
+    const linkBtn = $('trust-copy-link');
+    if (mdBtn && !mdBtn._bound) {
+      mdBtn._bound = true;
+      mdBtn.addEventListener('click', async () => {
+        const t = window.__lastTrust || {};
+        const ok = await copyText(trustMarkdownSnippet(t));
+        flashTrustBtn(mdBtn, ok ? 'Copied' : 'Fail');
+      });
+    }
+    if (linkBtn && !linkBtn._bound) {
+      linkBtn._bound = true;
+      linkBtn.addEventListener('click', async () => {
+        const url = `${trustShareOrigin()}/?trust=1`;
+        const ok = await copyText(url);
+        flashTrustBtn(linkBtn, ok ? 'Copied' : 'Fail');
+      });
+    }
+  }
+
+  function focusTrustSection() {
+    const params = new URLSearchParams(window.location.search || '');
+    const want = params.get('trust') === '1' || params.get('trust') === 'true'
+      || window.location.hash === '#trust';
+    if (!want) return;
+    const sec = $('trust-section');
+    if (!sec) return;
+    sec.classList.add('is-focus');
+    try {
+      sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch {
+      sec.scrollIntoView();
+    }
+    // Panel on mobile is below chart — also ensure panel scrolls
+    const panel = $('panel');
+    if (panel && panel.scrollHeight > panel.clientHeight) {
+      const top = sec.offsetTop - 8;
+      panel.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    }
+  }
+
   function renderTrust(data) {
     const t = data.trust;
+    window.__lastTrust = t || null;
     const gradeEl = $('trust-grade');
     const scoreEl = $('trust-score');
     const headEl = $('trust-headline');
     const whyEl = $('trust-why');
     const listEl = $('trust-checks');
     const footEl = $('trust-foot');
+    const badgeImg = $('trust-badge-img');
     if (!gradeEl && !headEl) return;
+
+    bindTrustShare();
 
     if (!t) {
       if (headEl) headEl.textContent = 'Trust report unavailable';
@@ -349,6 +439,10 @@
         'no remote control',
       ].filter(Boolean);
       footEl.textContent = parts.join(' · ');
+    }
+    if (badgeImg) {
+      // bust cache so grade color updates after deploy / status change
+      badgeImg.src = `/badge.svg?t=${encodeURIComponent(String(t.score ?? '') + (t.grade || '') + (t.status || ''))}`;
     }
 
     // Align quality pill with trust status when present
@@ -1070,6 +1164,11 @@
     ensureTradingView(pair);
     if ($('last-fetch')) $('last-fetch').textContent = fmtTime(data.ts || Date.now());
     if ($('refresh-sec')) $('refresh-sec').textContent = String(REFRESH_MS / 1000);
+    // One-shot focus when linked with ?trust=1
+    if (!window.__trustFocused) {
+      window.__trustFocused = true;
+      requestAnimationFrame(() => focusTrustSection());
+    }
   }
 
   function renderError(err) {
