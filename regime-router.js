@@ -173,23 +173,39 @@ function regimeAdjustments(classification, strategy) {
  * Chiamato da pro-engine.js PRIMA della decisione di trade.
  */
 function route(analysis, strategy) {
-  // Se c'è un cooldown attivo da shock, rispettalo
+  // Always classify so callers can read .classification.regime even on cooldown
+  const classification = classifyRegime(analysis, strategy);
+
+  // Se c'è un cooldown attivo da shock, rispettalo (ma non omettere classification)
   if (routerState.shockDetectedAt) {
     const elapsed = Date.now() - routerState.shockDetectedAt;
     if (elapsed < THRESHOLDS.cooldownShockMs) {
       const remaining = Math.ceil((THRESHOLDS.cooldownShockMs - elapsed) / 60000);
+      routerState.flatReason = `Cooldown shock: ${remaining}min rimanenti`;
+      // Keep regime label as shock while cooling down
+      if (routerState.currentRegime !== 'shock') {
+        routerState.lastRegimeChangeAt = Date.now();
+        routerState.currentRegime = 'shock';
+      }
       return {
         mode: 'flat',
         flat: true,
-        flatReason: `Cooldown shock: ${remaining}min rimanenti`,
+        flatReason: routerState.flatReason,
         adjustments: { scoreBoost: 0, sizeMultiplier: 0, tpMultiplier: 1.0, reason: 'cooldown shock' },
+        classification: {
+          regime: 'shock',
+          confidence: classification.confidence ?? 90,
+          reasons: classification.reasons?.length
+            ? classification.reasons
+            : [`cooldown ${remaining}min`],
+        },
+        routerState: { ...routerState },
       };
     }
     // Cooldown scaduto
     routerState.shockDetectedAt = null;
   }
 
-  const classification = classifyRegime(analysis, strategy);
   const decision = regimeAdjustments(classification, strategy);
 
   // Bear regime: valuta setup short ipotetici

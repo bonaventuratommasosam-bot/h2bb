@@ -357,10 +357,12 @@ async function runTick(ctx) {
     let minScore = entryScore.effectiveMin ?? strategy.minConfidenceScore ?? 65;
 
     // Regime Router: adatta la strategia al regime di mercato
-    const regimeDecision = regimeRouter.route(analysis, strategy);
-    if (regimeDecision.classification.regime !== (tickState._lastRegime || 'unknown')) {
-      onLog(`[REGIME] ${tickState._lastRegime || '?'} → ${regimeDecision.classification.regime} (${regimeDecision.classification.reasons.join(', ')})`);
-      tickState._lastRegime = regimeDecision.classification.regime;
+    const regimeDecision = regimeRouter.route(analysis, strategy) || {};
+    const regimeLabel = regimeDecision.classification?.regime || 'unknown';
+    const regimeReasons = regimeDecision.classification?.reasons || [];
+    if (regimeLabel !== (tickState._lastRegime || 'unknown')) {
+      onLog(`[REGIME] ${tickState._lastRegime || '?'} → ${regimeLabel} (${regimeReasons.join(', ') || 'n/a'})`);
+      tickState._lastRegime = regimeLabel;
     }
 
     // Regime flat: blocca trading
@@ -371,9 +373,9 @@ async function runTick(ctx) {
         reason: regimeDecision.flatReason,
         reasonCode: REASON.REGIME_FLAT,
         score: 0,
-        regime: regimeDecision.classification.regime,
-      }, { minScore, regime: regimeDecision.classification.regime });
-      return { signal: strategy.lastSignal, flat: true, regime: regimeDecision.classification.regime };
+        regime: regimeLabel,
+      }, { minScore, regime: regimeLabel });
+      return { signal: strategy.lastSignal, flat: true, regime: regimeLabel };
     }
 
     // Regime reduce: applica aggiustamenti
