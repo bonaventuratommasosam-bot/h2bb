@@ -190,10 +190,32 @@ function tradeTimestampMs(t) {
   return Number.isFinite(ms) ? ms : null;
 }
 
+/** Map dashboard / TradingView-style TF → HL interval */
+function normalizeChartInterval(raw) {
+  const s = String(raw || '').toLowerCase().trim();
+  const map = {
+    '5': '5m',
+    '5m': '5m',
+    '15': '15m',
+    '15m': '15m',
+    '60': '1h',
+    '1h': '1h',
+    '240': '4h',
+    '4h': '4h',
+    d: '1d',
+    '1d': '1d',
+    day: '1d',
+  };
+  return map[s] || null;
+}
+
 /**
- * OHLCV close series + bot buy/sell markers for the active pair.
+ * OHLCV series + bot buy/sell markers for the active pair.
+ * @param {string} pair
+ * @param {Array} trades
+ * @param {{ interval?: string }} [opts] preferred HL interval (5m/15m/1h/4h/1d)
  */
-async function buildPriceChart(pair, trades) {
+async function buildPriceChart(pair, trades, opts = {}) {
   const p = String(pair || 'ETH').toUpperCase();
   const markers = (trades || [])
     .filter((t) => String(t.pair || '').toUpperCase() === p)
@@ -229,11 +251,21 @@ async function buildPriceChart(pair, trades) {
   if (now - start > maxLookback) start = now - maxLookback;
 
   const span = now - start;
-  let interval = '1h';
-  if (span > 21 * 86_400_000) interval = '4h';
-  else if (span > 5 * 86_400_000) interval = '1h';
-  else if (span > 2 * 86_400_000) interval = '15m';
-  else interval = '5m';
+  let interval = normalizeChartInterval(opts.interval);
+  if (!interval) {
+    interval = '1h';
+    if (span > 21 * 86_400_000) interval = '4h';
+    else if (span > 5 * 86_400_000) interval = '1h';
+    else if (span > 2 * 86_400_000) interval = '15m';
+    else interval = '5m';
+  }
+
+  // Wider window for coarser TF so chart is not empty
+  const step = marketData.INTERVAL_MS[interval] || 3_600_000;
+  const minBars = 80;
+  if (now - start < minBars * step) {
+    start = now - minBars * step;
+  }
 
   const cacheKey = `${p}:${interval}:${Math.floor(start / 3_600_000)}:${markers.length}`;
   if (
@@ -263,7 +295,6 @@ async function buildPriceChart(pair, trades) {
   }));
 
   const t0 = series.length ? series[0].t : start;
-  const step = marketData.INTERVAL_MS[interval] || 3_600_000;
   const t1 = series.length ? series[series.length - 1].t + step : now;
   const visible = markers.filter((m) => m.t >= t0 - step && m.t <= t1 + step);
 
@@ -457,7 +488,12 @@ router.get('/api/dashboard', async (req, res) => {
     try { trades = performance.loadTrades(300); } catch { trades = []; }
     try { events = eventLog.query({ limit: 40 }); } catch { events = []; }
 
-    const priceChart = await withTimeout(buildPriceChart(pair, trades), 8000, null);
+    const chartTf = normalizeChartInterval(req.query.chartTf || req.query.tf || req.query.interval);
+    const priceChart = await withTimeout(
+      buildPriceChart(pair, trades, { interval: chartTf || undefined }),
+      8000,
+      null
+    );
     const heartbeat = readHeartbeat();
     const snap = shared.lastTickSnapshot || {};
     const entryScore = marketSnap?.entryScore || snap.entryScore;

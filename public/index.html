@@ -57,22 +57,27 @@
 
       <div class="tv-shell">
         <div class="tv-bar">
-          <span class="tv-bar-label" id="tv-bar-label">Live chart · spot ref</span>
-          <span class="tv-bar-src mono" id="tv-bar-src">TradingView · —</span>
+          <span class="tv-bar-label" id="tv-bar-label">Live chart · buy/sell markers</span>
+          <span class="tv-bar-src mono" id="tv-bar-src">HL · —</span>
+          <span class="tv-legend" title="Bot trade markers">
+            <span class="tv-leg-buy">▲ buy</span>
+            <span class="tv-leg-sell">▼ sell</span>
+          </span>
           <div class="tv-bar-actions">
             <button type="button" class="tv-btn" data-tv-tf="5" title="5m">5m</button>
             <button type="button" class="tv-btn is-active" data-tv-tf="15" title="15m">15m</button>
             <button type="button" class="tv-btn" data-tv-tf="60" title="1h">1H</button>
             <button type="button" class="tv-btn" data-tv-tf="240" title="4h">4H</button>
             <button type="button" class="tv-btn" data-tv-tf="D" title="1D">1D</button>
+            <a id="tv-fallback-link" class="tv-btn tv-btn-link" href="https://www.tradingview.com/" target="_blank" rel="noopener" title="Open symbol on TradingView">TV ↗</a>
           </div>
         </div>
         <div class="tv-wrap">
           <div id="tv-chart"></div>
           <div id="tv-fallback" class="tv-fallback" hidden>
-            <p>TradingView chart unavailable.</p>
-            <p class="muted small">Check network / ad-block, or open the symbol on TradingView.</p>
-            <a id="tv-fallback-link" href="https://www.tradingview.com/" target="_blank" rel="noopener">Open TradingView</a>
+            <p>Chart unavailable.</p>
+            <p class="muted small">Check network, or open the symbol on TradingView.</p>
+            <a id="tv-fallback-link-2" href="https://www.tradingview.com/" target="_blank" rel="noopener">Open TradingView</a>
           </div>
         </div>
       </div>

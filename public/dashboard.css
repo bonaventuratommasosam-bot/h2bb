@@ -209,11 +209,29 @@ body.world-body {
 .tv-bar-src {
   font-size: 0.62rem;
   color: var(--faint);
-  margin-right: auto;
 }
+.tv-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-right: auto;
+  margin-left: 0.35rem;
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.tv-leg-buy { color: #2fd48a; }
+.tv-leg-sell { color: #f06570; }
 .tv-bar-actions {
   display: flex;
   gap: 0.25rem;
+  align-items: center;
+}
+.tv-btn-link {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
 }
 .tv-btn {
   font-family: var(--mono);

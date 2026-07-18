@@ -7,22 +7,26 @@
   /** @type {{ pad: object, t0: number, t1: number, min: number, max: number, w: number, h: number, cssW: number, cssH: number, markers: Array } | null} */
   let tradeChartGeom = null;
 
-  /** TradingView widget state */
-  let tvWidget = null;
-  let tvSymbolCurrent = null;
-  let tvInterval = '15';
-  let tvReady = false;
-  let tvLoadPromise = null;
+  /**
+   * Main stage chart: TradingView Lightweight Charts (candles + bot buy/sell markers).
+   * Free TV Advanced Chart widget cannot inject custom marks — LWC is the supported path.
+   */
+  let lwcChart = null;
+  let lwcSeries = null;
+  let lwcPair = null;
+  let lwcInterval = '15'; // dashboard query chartTf
+  let lwcLoadPromise = null;
+  let lwcResizeObs = null;
+  let lwcLastSig = '';
 
   const $ = (id) => document.getElementById(id);
 
-  /** Map bot pair → TradingView symbol (ETHUSD-style spot charts). */
+  /** Map bot pair → TradingView.com symbol (external link only). */
   function pairToTvSymbol(pair) {
     const p = String(pair || 'ETH')
       .toUpperCase()
       .replace(/-PERP|\/|USDC|USDT|USD/g, '')
       .replace(/[^A-Z0-9]/g, '');
-    // Prefer COINBASE:*USD (real ETHUSD etc.) — HYPERLIQUID:*USD often missing on TV free widget
     const usd = {
       ETH: 'COINBASE:ETHUSD',
       BTC: 'COINBASE:BTCUSD',
@@ -40,53 +44,51 @@
       SEI: 'COINBASE:SEIUSD',
     };
     if (usd[p]) return usd[p];
-    // Default: PAIRUSD on Coinbase search format; USDT fallback for obscure alts
     if (['HYPE'].includes(p)) return `BINANCE:${p}USDT`;
     return `COINBASE:${p}USD`;
   }
 
-  function loadTvScript() {
-    if (window.TradingView) return Promise.resolve();
-    if (tvLoadPromise) return tvLoadPromise;
-    tvLoadPromise = new Promise((resolve, reject) => {
-      const existing = document.querySelector('script[src*="tradingview.com/tv.js"]');
-      if (existing && window.TradingView) {
+  function loadLightweightCharts() {
+    if (window.LightweightCharts?.createChart) return Promise.resolve();
+    if (lwcLoadPromise) return lwcLoadPromise;
+    lwcLoadPromise = new Promise((resolve, reject) => {
+      const existing = document.querySelector('script[data-lwc="1"]');
+      if (existing && window.LightweightCharts?.createChart) {
         resolve();
         return;
       }
       const s = document.createElement('script');
-      s.src = 'https://s3.tradingview.com/tv.js';
+      s.src = 'https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js';
       s.async = true;
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error('TradingView script failed'));
+      s.dataset.lwc = '1';
+      s.onload = () => {
+        if (window.LightweightCharts?.createChart) resolve();
+        else reject(new Error('LightweightCharts missing after load'));
+      };
+      s.onerror = () => reject(new Error('LightweightCharts CDN failed'));
       document.head.appendChild(s);
-      // if already in HTML, wait a bit
-      let n = 0;
-      const poll = setInterval(() => {
-        if (window.TradingView) {
-          clearInterval(poll);
-          resolve();
-        } else if (++n > 80) {
-          clearInterval(poll);
-          if (!window.TradingView) reject(new Error('TradingView timeout'));
-        }
-      }, 50);
     });
-    return tvLoadPromise;
+    return lwcLoadPromise;
   }
 
-  function setTvMeta(symbol, pair) {
-    if ($('tv-symbol-pill')) $('tv-symbol-pill').textContent = symbol || '—';
-    if ($('tv-bar-src')) $('tv-bar-src').textContent = symbol ? `TradingView · ${symbol}` : 'TradingView';
+  function setTvMeta(pair, intervalLabel, markerCounts) {
+    const p = String(pair || '').toUpperCase() || '—';
+    const symbol = pairToTvSymbol(p);
+    if ($('tv-symbol-pill')) $('tv-symbol-pill').textContent = `${p}-PERP`;
+    if ($('tv-bar-src')) {
+      const b = markerCounts?.buys ?? 0;
+      const s = markerCounts?.sells ?? 0;
+      $('tv-bar-src').textContent = `HL ${intervalLabel || '—'} · ${b}B / ${s}S`;
+    }
     const label = $('tv-bar-label');
     if (label) {
-      const p = String(pair || '').toUpperCase() || '—';
-      label.textContent = `Live chart · ${p} perp mid on panel · TV spot ref`;
+      label.textContent = `Live chart · ${p} · bot buy/sell markers`;
     }
+    const href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(symbol)}`;
     const link = $('tv-fallback-link');
-    if (link && symbol) {
-      link.href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(symbol)}`;
-    }
+    if (link) link.href = href;
+    const link2 = $('tv-fallback-link-2');
+    if (link2) link2.href = href;
   }
 
   function showTvFallback(show) {
@@ -94,80 +96,185 @@
     if (el) el.hidden = !show;
   }
 
-  function mountTradingView(symbol, interval) {
-    const container = $('tv-chart');
-    if (!container) return;
-    if (!window.TradingView || typeof window.TradingView.widget !== 'function') {
-      showTvFallback(true);
-      return;
+  function destroyLwc() {
+    if (lwcResizeObs) {
+      try { lwcResizeObs.disconnect(); } catch { /* ignore */ }
+      lwcResizeObs = null;
     }
+    if (lwcChart) {
+      try { lwcChart.remove(); } catch { /* ignore */ }
+    }
+    lwcChart = null;
+    lwcSeries = null;
+    lwcLastSig = '';
+  }
 
-    const sym = symbol || tvSymbolCurrent || 'COINBASE:ETHUSD';
-    const iv = interval || tvInterval || '15';
-    tvSymbolCurrent = sym;
-    tvInterval = iv;
-    const pairGuess = String(sym).split(':').pop()?.replace(/USD|USDT/g, '') || '';
-    setTvMeta(sym, pairGuess);
-    showTvFallback(false);
+  function ensureLwcChart() {
+    const container = $('tv-chart');
+    if (!container || !window.LightweightCharts?.createChart) return false;
+    if (lwcChart && lwcSeries) return true;
 
-    // recreate container (TV widget owns the node)
     container.innerHTML = '';
-    const id = 'tv-chart-host';
     const host = document.createElement('div');
-    host.id = id;
+    host.id = 'tv-chart-host';
     host.style.width = '100%';
     host.style.height = '100%';
     host.style.minHeight = '320px';
     container.appendChild(host);
 
-    try {
-      // Free Advanced Chart widget options only (not Charting Library)
-      tvWidget = new window.TradingView.widget({
-        autosize: true,
-        symbol: sym,
-        interval: iv,
-        timezone: 'Etc/UTC',
-        theme: 'dark',
-        style: '1',
-        locale: 'en',
-        toolbar_bg: '#0a0e16',
-        enable_publishing: false,
-        hide_top_toolbar: false,
-        hide_legend: false,
-        hide_side_toolbar: false,
-        allow_symbol_change: true,
-        save_image: false,
-        withdateranges: true,
-        details: false,
-        hotlist: false,
-        calendar: false,
-        studies: ['MASimple@tv-basicstudies'],
-        container_id: id,
+    lwcChart = window.LightweightCharts.createChart(host, {
+      autoSize: true,
+      layout: {
+        background: { type: 'solid', color: '#0a0e16' },
+        textColor: '#7d8799',
+        fontFamily: 'IBM Plex Mono, ui-monospace, monospace',
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: 'rgba(255,255,255,0.04)' },
+        horzLines: { color: 'rgba(255,255,255,0.04)' },
+      },
+      crosshair: {
+        mode: window.LightweightCharts.CrosshairMode?.Normal ?? 1,
+        vertLine: { color: 'rgba(106,159,212,0.35)', labelBackgroundColor: '#1a2332' },
+        horzLine: { color: 'rgba(106,159,212,0.35)', labelBackgroundColor: '#1a2332' },
+      },
+      rightPriceScale: {
+        borderColor: 'rgba(255,255,255,0.06)',
+        scaleMargins: { top: 0.08, bottom: 0.12 },
+      },
+      timeScale: {
+        borderColor: 'rgba(255,255,255,0.06)',
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      handleScroll: { vertTouchDrag: false },
+    });
+
+    lwcSeries = lwcChart.addCandlestickSeries({
+      upColor: '#2fd48a',
+      downColor: '#f06570',
+      borderVisible: false,
+      wickUpColor: '#2fd48a',
+      wickDownColor: '#f06570',
+    });
+
+    if (typeof ResizeObserver !== 'undefined') {
+      lwcResizeObs = new ResizeObserver(() => {
+        if (!lwcChart || !host) return;
+        const w = host.clientWidth;
+        const h = host.clientHeight || 320;
+        if (w > 0 && h > 0) lwcChart.applyOptions({ width: w, height: h });
       });
-      tvReady = true;
-    } catch (e) {
-      console.error('[TV]', e);
-      showTvFallback(true);
+      lwcResizeObs.observe(host);
     }
+    return true;
   }
 
-  async function ensureTradingView(pair) {
-    const symbol = pairToTvSymbol(pair);
-    try {
-      await loadTvScript();
-    } catch (e) {
-      console.error('[TV] load', e);
-      setTvMeta(symbol, pair);
+  /** Snap trade ms → nearest candle time (seconds) so markers align on bars. */
+  function snapMarkerTime(tMs, candleTimesSec) {
+    if (!candleTimesSec.length) return Math.floor(tMs / 1000);
+    const tSec = Math.floor(tMs / 1000);
+    let best = candleTimesSec[0];
+    let bestD = Math.abs(best - tSec);
+    for (let i = 1; i < candleTimesSec.length; i++) {
+      const d = Math.abs(candleTimesSec[i] - tSec);
+      if (d < bestD) {
+        best = candleTimesSec[i];
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  function applyPriceChartToLwc(priceChart, pair) {
+    if (!priceChart || !ensureLwcChart() || !lwcSeries) {
       showTvFallback(true);
       return;
     }
-    // only remount if symbol changed (avoid destroy on every poll)
-    if (tvReady && tvSymbolCurrent === symbol) {
-      setTvMeta(symbol, pair);
+    showTvFallback(false);
+
+    const candles = priceChart.candles || [];
+    const markers = priceChart.markers || [];
+    const interval = priceChart.interval || lwcInterval;
+    const p = priceChart.pair || pair;
+
+    const candleData = candles
+      .filter((c) => Number.isFinite(c.t) && Number.isFinite(c.o) && Number.isFinite(c.c))
+      .map((c) => ({
+        time: Math.floor(c.t / 1000),
+        open: c.o,
+        high: c.h,
+        low: c.l,
+        close: c.c,
+      }));
+
+    // de-dupe times ascending (LWC requirement)
+    const byTime = new Map();
+    candleData.forEach((c) => byTime.set(c.time, c));
+    const series = Array.from(byTime.values()).sort((a, b) => a.time - b.time);
+    const times = series.map((c) => c.time);
+
+    const sig = `${p}|${interval}|${series.length}|${markers.length}|${markers.map((m) => m.t).join(',')}`;
+    if (sig === lwcLastSig) {
+      setTvMeta(p, interval, { buys: priceChart.buys, sells: priceChart.sells });
       return;
     }
-    mountTradingView(symbol, tvInterval);
-    setTvMeta(symbol, pair);
+    lwcLastSig = sig;
+    lwcPair = p;
+
+    if (!series.length) {
+      showTvFallback(true);
+      setTvMeta(p, interval, { buys: 0, sells: 0 });
+      return;
+    }
+
+    lwcSeries.setData(series);
+
+    // Group markers by snapped time — one buy + one sell per bar max (last wins per type)
+    const markMap = new Map();
+    markers.forEach((m) => {
+      if (!Number.isFinite(m.t) || !Number.isFinite(m.price)) return;
+      const time = snapMarkerTime(m.t, times);
+      const isBuy = m.type === 'buy';
+      const key = `${time}:${isBuy ? 'b' : 's'}`;
+      const amount = m.amount != null && Number.isFinite(m.amount) ? m.amount : null;
+      const pnl = m.pnl != null && Number.isFinite(m.pnl) ? m.pnl : null;
+      let text = isBuy ? 'BUY' : 'SELL';
+      if (amount != null) text += ` ${amount < 0.01 ? amount.toFixed(5) : amount.toFixed(3)}`;
+      if (!isBuy && pnl != null) text += ` ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`;
+      markMap.set(key, {
+        time,
+        position: isBuy ? 'belowBar' : 'aboveBar',
+        color: isBuy ? '#2fd48a' : '#f06570',
+        shape: isBuy ? 'arrowUp' : 'arrowDown',
+        text,
+        size: 1.5,
+      });
+    });
+    const lwcMarkers = Array.from(markMap.values()).sort((a, b) => a.time - b.time || (a.position === 'belowBar' ? -1 : 1));
+    lwcSeries.setMarkers(lwcMarkers);
+
+    try {
+      lwcChart.timeScale().fitContent();
+    } catch { /* ignore */ }
+
+    setTvMeta(p, interval, {
+      buys: priceChart.buys ?? lwcMarkers.filter((m) => m.shape === 'arrowUp').length,
+      sells: priceChart.sells ?? lwcMarkers.filter((m) => m.shape === 'arrowDown').length,
+    });
+  }
+
+  async function ensureMainChart(pair, priceChart) {
+    try {
+      await loadLightweightCharts();
+    } catch (e) {
+      console.error('[CHART] load', e);
+      setTvMeta(pair, lwcInterval, null);
+      showTvFallback(true);
+      return;
+    }
+    applyPriceChartToLwc(priceChart, pair);
   }
 
   function bindTvTimeframes() {
@@ -177,8 +284,9 @@
         if (!tf) return;
         document.querySelectorAll('.tv-btn[data-tv-tf]').forEach((b) => b.classList.remove('is-active'));
         btn.classList.add('is-active');
-        tvInterval = tf;
-        if (tvSymbolCurrent) mountTradingView(tvSymbolCurrent, tvInterval);
+        lwcInterval = tf;
+        lwcLastSig = ''; // force redraw with new TF data
+        fetchDashboard();
       });
     });
   }
@@ -1196,9 +1304,9 @@
     renderTrades(data.trades);
     renderEquity(data.equityCurve || []);
     renderStats(data.performance);
-    // Live TradingView follows bot pair
+    // Main chart: HL candles + bot buy/sell markers (LWC)
     const pair = data.market?.pair || data.engine?.pair || 'ETH';
-    ensureTradingView(pair);
+    ensureMainChart(pair, data.priceChart);
     if ($('last-fetch')) $('last-fetch').textContent = fmtTime(data.ts || Date.now());
     if ($('refresh-sec')) $('refresh-sec').textContent = String(REFRESH_MS / 1000);
     // One-shot focus when linked with ?trust=1
@@ -1225,7 +1333,8 @@
     try {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 12000);
-      const res = await fetch('/api/dashboard', { cache: 'no-store', signal: ctrl.signal });
+      const tf = encodeURIComponent(lwcInterval || '15');
+      const res = await fetch(`/api/dashboard?chartTf=${tf}`, { cache: 'no-store', signal: ctrl.signal });
       clearTimeout(t);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
