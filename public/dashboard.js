@@ -49,25 +49,51 @@
   }
 
   function loadLightweightCharts() {
-    if (window.LightweightCharts?.createChart) return Promise.resolve();
+    if (window.LightweightCharts && typeof window.LightweightCharts.createChart === 'function') {
+      return Promise.resolve();
+    }
     if (lwcLoadPromise) return lwcLoadPromise;
-    lwcLoadPromise = new Promise((resolve, reject) => {
-      const existing = document.querySelector('script[data-lwc="1"]');
-      if (existing && window.LightweightCharts?.createChart) {
-        resolve();
-        return;
+
+    // Prefer self-hosted (CSP allows 'self' only — unpkg/jsdelivr blocked on live.hermesbro.cloud)
+    const sources = [
+      '/vendor/lightweight-charts.standalone.production.js',
+      'https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js',
+    ];
+
+    lwcLoadPromise = (async () => {
+      let lastErr = null;
+      for (const src of sources) {
+        try {
+          await new Promise((resolve, reject) => {
+            const existing = document.querySelector(`script[data-lwc-src="${src}"]`);
+            if (existing) {
+              if (window.LightweightCharts?.createChart) resolve();
+              else reject(new Error('script present but LWC missing'));
+              return;
+            }
+            const s = document.createElement('script');
+            s.src = src;
+            s.async = true;
+            s.dataset.lwc = '1';
+            s.dataset.lwcSrc = src;
+            s.onload = () => {
+              if (window.LightweightCharts && typeof window.LightweightCharts.createChart === 'function') {
+                resolve();
+              } else {
+                reject(new Error('LightweightCharts global missing after ' + src));
+              }
+            };
+            s.onerror = () => reject(new Error('failed to load ' + src));
+            document.head.appendChild(s);
+          });
+          return;
+        } catch (e) {
+          lastErr = e;
+          console.warn('[CHART] load try failed:', e.message || e);
+        }
       }
-      const s = document.createElement('script');
-      s.src = 'https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js';
-      s.async = true;
-      s.dataset.lwc = '1';
-      s.onload = () => {
-        if (window.LightweightCharts?.createChart) resolve();
-        else reject(new Error('LightweightCharts missing after load'));
-      };
-      s.onerror = () => reject(new Error('LightweightCharts CDN failed'));
-      document.head.appendChild(s);
-    });
+      throw lastErr || new Error('LightweightCharts unavailable');
+    })();
     return lwcLoadPromise;
   }
 
@@ -111,70 +137,84 @@
 
   function ensureLwcChart() {
     const container = $('tv-chart');
-    if (!container || !window.LightweightCharts?.createChart) return false;
+    if (!container) return false;
+    if (!(window.LightweightCharts && typeof window.LightweightCharts.createChart === 'function')) {
+      return false;
+    }
     if (lwcChart && lwcSeries) return true;
 
-    container.innerHTML = '';
-    const host = document.createElement('div');
-    host.id = 'tv-chart-host';
-    host.style.width = '100%';
-    host.style.height = '100%';
-    host.style.minHeight = '320px';
-    container.appendChild(host);
+    try {
+      container.innerHTML = '';
+      const host = document.createElement('div');
+      host.id = 'tv-chart-host';
+      host.style.width = '100%';
+      host.style.height = '100%';
+      host.style.minHeight = '320px';
+      container.appendChild(host);
 
-    lwcChart = window.LightweightCharts.createChart(host, {
-      autoSize: true,
-      layout: {
-        background: { type: 'solid', color: '#0a0e16' },
-        textColor: '#7d8799',
-        fontFamily: 'IBM Plex Mono, ui-monospace, monospace',
-        fontSize: 11,
-      },
-      grid: {
-        vertLines: { color: 'rgba(255,255,255,0.04)' },
-        horzLines: { color: 'rgba(255,255,255,0.04)' },
-      },
-      crosshair: {
-        mode: window.LightweightCharts.CrosshairMode?.Normal ?? 1,
-        vertLine: { color: 'rgba(106,159,212,0.35)', labelBackgroundColor: '#1a2332' },
-        horzLine: { color: 'rgba(106,159,212,0.35)', labelBackgroundColor: '#1a2332' },
-      },
-      rightPriceScale: {
-        borderColor: 'rgba(255,255,255,0.06)',
-        scaleMargins: { top: 0.08, bottom: 0.12 },
-      },
-      timeScale: {
-        borderColor: 'rgba(255,255,255,0.06)',
-        timeVisible: true,
-        secondsVisible: false,
-      },
-      handleScroll: { vertTouchDrag: false },
-    });
+      const w0 = Math.max(host.clientWidth || container.clientWidth || 640, 280);
+      const h0 = Math.max(host.clientHeight || container.clientHeight || 360, 280);
 
-    lwcSeries = lwcChart.addCandlestickSeries({
-      upColor: '#2fd48a',
-      downColor: '#f06570',
-      borderVisible: false,
-      wickUpColor: '#2fd48a',
-      wickDownColor: '#f06570',
-    });
-
-    if (typeof ResizeObserver !== 'undefined') {
-      lwcResizeObs = new ResizeObserver(() => {
-        if (!lwcChart || !host) return;
-        const w = host.clientWidth;
-        const h = host.clientHeight || 320;
-        if (w > 0 && h > 0) lwcChart.applyOptions({ width: w, height: h });
+      lwcChart = window.LightweightCharts.createChart(host, {
+        width: w0,
+        height: h0,
+        layout: {
+          background: { type: 'solid', color: '#0a0e16' },
+          textColor: '#7d8799',
+          fontFamily: 'IBM Plex Mono, ui-monospace, monospace',
+          fontSize: 11,
+        },
+        grid: {
+          vertLines: { color: 'rgba(255,255,255,0.04)' },
+          horzLines: { color: 'rgba(255,255,255,0.04)' },
+        },
+        crosshair: {
+          mode: (window.LightweightCharts.CrosshairMode && window.LightweightCharts.CrosshairMode.Normal) || 1,
+          vertLine: { color: 'rgba(106,159,212,0.35)', labelBackgroundColor: '#1a2332' },
+          horzLine: { color: 'rgba(106,159,212,0.35)', labelBackgroundColor: '#1a2332' },
+        },
+        rightPriceScale: {
+          borderColor: 'rgba(255,255,255,0.06)',
+          scaleMargins: { top: 0.08, bottom: 0.12 },
+        },
+        timeScale: {
+          borderColor: 'rgba(255,255,255,0.06)',
+          timeVisible: true,
+          secondsVisible: false,
+        },
+        handleScroll: { vertTouchDrag: false },
       });
-      lwcResizeObs.observe(host);
+
+      lwcSeries = lwcChart.addCandlestickSeries({
+        upColor: '#2fd48a',
+        downColor: '#f06570',
+        borderVisible: false,
+        wickUpColor: '#2fd48a',
+        wickDownColor: '#f06570',
+      });
+
+      if (typeof ResizeObserver !== 'undefined') {
+        lwcResizeObs = new ResizeObserver(() => {
+          if (!lwcChart || !host) return;
+          const w = host.clientWidth || container.clientWidth;
+          const h = host.clientHeight || container.clientHeight || 320;
+          if (w > 0 && h > 0) lwcChart.applyOptions({ width: w, height: h });
+        });
+        lwcResizeObs.observe(host);
+        lwcResizeObs.observe(container);
+      }
+      return true;
+    } catch (e) {
+      console.error('[CHART] create failed', e);
+      destroyLwc();
+      return false;
     }
-    return true;
   }
 
   /** Snap trade ms → nearest candle time (seconds) so markers align on bars. */
   function snapMarkerTime(tMs, candleTimesSec) {
-    if (!candleTimesSec.length) return Math.floor(tMs / 1000);
-    const tSec = Math.floor(tMs / 1000);
+    if (!candleTimesSec.length) return normalizeCandleTimeSec(tMs) || 0;
+    const tSec = normalizeCandleTimeSec(tMs) || 0;
     let best = candleTimesSec[0];
     let bestD = Math.abs(best - tSec);
     for (let i = 1; i < candleTimesSec.length; i++) {
@@ -187,94 +227,134 @@
     return best;
   }
 
+  function normalizeCandleTimeSec(tMs) {
+    // HL returns ms; tolerate accidental seconds
+    const n = Number(tMs);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n > 1e12 ? Math.floor(n / 1000) : Math.floor(n);
+  }
+
   function applyPriceChartToLwc(priceChart, pair) {
-    if (!priceChart || !ensureLwcChart() || !lwcSeries) {
+    if (!priceChart) {
       showTvFallback(true);
-      return;
+      return false;
     }
-    showTvFallback(false);
+    if (!ensureLwcChart() || !lwcSeries) {
+      showTvFallback(true);
+      return false;
+    }
 
     const candles = priceChart.candles || [];
     const markers = priceChart.markers || [];
     const interval = priceChart.interval || lwcInterval;
     const p = priceChart.pair || pair;
 
-    const candleData = candles
-      .filter((c) => Number.isFinite(c.t) && Number.isFinite(c.o) && Number.isFinite(c.c))
-      .map((c) => ({
-        time: Math.floor(c.t / 1000),
-        open: c.o,
-        high: c.h,
-        low: c.l,
-        close: c.c,
-      }));
+    const candleData = [];
+    for (const c of candles) {
+      const time = normalizeCandleTimeSec(c.t);
+      if (time == null) continue;
+      const open = Number(c.o);
+      const high = Number(c.h);
+      const low = Number(c.l);
+      const close = Number(c.c);
+      if (![open, high, low, close].every((v) => Number.isFinite(v) && v > 0)) continue;
+      candleData.push({
+        time,
+        open,
+        high: Math.max(high, open, close),
+        low: Math.min(low, open, close),
+        close,
+      });
+    }
 
     // de-dupe times ascending (LWC requirement)
     const byTime = new Map();
     candleData.forEach((c) => byTime.set(c.time, c));
     const series = Array.from(byTime.values()).sort((a, b) => a.time - b.time);
-    const times = series.map((c) => c.time);
+    // Cap series length for UI performance (keep most recent)
+    const MAX_BARS = 800;
+    const seriesTrim = series.length > MAX_BARS ? series.slice(series.length - MAX_BARS) : series;
+    const times = seriesTrim.map((c) => c.time);
 
-    const sig = `${p}|${interval}|${series.length}|${markers.length}|${markers.map((m) => m.t).join(',')}`;
+    const sig = `${p}|${interval}|${seriesTrim.length}|${markers.length}|${(markers[markers.length - 1] || {}).t || 0}`;
     if (sig === lwcLastSig) {
       setTvMeta(p, interval, { buys: priceChart.buys, sells: priceChart.sells });
-      return;
+      showTvFallback(false);
+      return true;
     }
     lwcLastSig = sig;
     lwcPair = p;
 
-    if (!series.length) {
+    if (!seriesTrim.length) {
       showTvFallback(true);
       setTvMeta(p, interval, { buys: 0, sells: 0 });
-      return;
+      return false;
     }
 
-    lwcSeries.setData(series);
-
-    // Group markers by snapped time — one buy + one sell per bar max (last wins per type)
-    const markMap = new Map();
-    markers.forEach((m) => {
-      if (!Number.isFinite(m.t) || !Number.isFinite(m.price)) return;
-      const time = snapMarkerTime(m.t, times);
-      const isBuy = m.type === 'buy';
-      const key = `${time}:${isBuy ? 'b' : 's'}`;
-      const amount = m.amount != null && Number.isFinite(m.amount) ? m.amount : null;
-      const pnl = m.pnl != null && Number.isFinite(m.pnl) ? m.pnl : null;
-      let text = isBuy ? 'BUY' : 'SELL';
-      if (amount != null) text += ` ${amount < 0.01 ? amount.toFixed(5) : amount.toFixed(3)}`;
-      if (!isBuy && pnl != null) text += ` ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`;
-      markMap.set(key, {
-        time,
-        position: isBuy ? 'belowBar' : 'aboveBar',
-        color: isBuy ? '#2fd48a' : '#f06570',
-        shape: isBuy ? 'arrowUp' : 'arrowDown',
-        text,
-        size: 1.5,
-      });
-    });
-    const lwcMarkers = Array.from(markMap.values()).sort((a, b) => a.time - b.time || (a.position === 'belowBar' ? -1 : 1));
-    lwcSeries.setMarkers(lwcMarkers);
-
     try {
-      lwcChart.timeScale().fitContent();
-    } catch { /* ignore */ }
+      lwcSeries.setData(seriesTrim);
 
-    setTvMeta(p, interval, {
-      buys: priceChart.buys ?? lwcMarkers.filter((m) => m.shape === 'arrowUp').length,
-      sells: priceChart.sells ?? lwcMarkers.filter((m) => m.shape === 'arrowDown').length,
-    });
+      // Group markers by snapped time — one buy + one sell per bar max
+      const markMap = new Map();
+      const tMin = times[0];
+      const tMax = times[times.length - 1];
+      markers.forEach((m) => {
+        if (!Number.isFinite(m.t) || !Number.isFinite(m.price)) return;
+        const time = snapMarkerTime(m.t, times);
+        if (time < tMin || time > tMax) return;
+        const isBuy = m.type === 'buy';
+        const key = `${time}:${isBuy ? 'b' : 's'}`;
+        const amount = m.amount != null && Number.isFinite(m.amount) ? m.amount : null;
+        const pnl = m.pnl != null && Number.isFinite(m.pnl) ? m.pnl : null;
+        let text = isBuy ? 'BUY' : 'SELL';
+        if (amount != null) text += ` ${amount < 0.01 ? amount.toFixed(5) : amount.toFixed(3)}`;
+        if (!isBuy && pnl != null) text += ` ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`;
+        markMap.set(key, {
+          time,
+          position: isBuy ? 'belowBar' : 'aboveBar',
+          color: isBuy ? '#2fd48a' : '#f06570',
+          shape: isBuy ? 'arrowUp' : 'arrowDown',
+          text,
+          size: 2,
+        });
+      });
+      const lwcMarkers = Array.from(markMap.values()).sort(
+        (a, b) => a.time - b.time || (a.position === 'belowBar' ? -1 : 1)
+      );
+      lwcSeries.setMarkers(lwcMarkers);
+
+      try {
+        lwcChart.timeScale().fitContent();
+      } catch { /* ignore */ }
+
+      setTvMeta(p, interval, {
+        buys: priceChart.buys ?? lwcMarkers.filter((m) => m.shape === 'arrowUp').length,
+        sells: priceChart.sells ?? lwcMarkers.filter((m) => m.shape === 'arrowDown').length,
+      });
+      showTvFallback(false);
+      return true;
+    } catch (e) {
+      console.error('[CHART] setData/markers failed', e);
+      showTvFallback(true);
+      return false;
+    }
   }
 
   async function ensureMainChart(pair, priceChart) {
     try {
       await loadLightweightCharts();
+      const ok = applyPriceChartToLwc(priceChart, pair);
+      if (!ok) {
+        setTvMeta(pair, lwcInterval, {
+          buys: priceChart?.buys,
+          sells: priceChart?.sells,
+        });
+      }
     } catch (e) {
       console.error('[CHART] load', e);
       setTvMeta(pair, lwcInterval, null);
       showTvFallback(true);
-      return;
     }
-    applyPriceChartToLwc(priceChart, pair);
   }
 
   function bindTvTimeframes() {
