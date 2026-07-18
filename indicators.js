@@ -169,12 +169,22 @@ function detectRegime(adx, bbBandwidth) {
   return 'mixed';
 }
 
-function dynamicMinScore(baseScore, regime, macroTrend) {
+/**
+ * Dynamic entry threshold. floor defaults 55 (balanced); pass lower floor for super_degen.
+ * @param {number} baseScore
+ * @param {string} regime
+ * @param {string} macroTrend
+ * @param {{ floor?: number, ceil?: number, rangingBoost?: number }} [opts]
+ */
+function dynamicMinScore(baseScore, regime, macroTrend, opts = {}) {
   let adj = baseScore;
+  const rangingBoost = opts.rangingBoost != null ? opts.rangingBoost : 5;
   if (regime === 'trending' && macroTrend === 'bullish') adj -= 3;
-  if (regime === 'ranging') adj += 5;
+  if (regime === 'ranging') adj += rangingBoost;
   if (regime === 'mixed') adj += 2;
-  return Math.max(55, Math.min(80, adj));
+  const floor = opts.floor != null ? opts.floor : 55;
+  const ceil = opts.ceil != null ? opts.ceil : 80;
+  return Math.max(floor, Math.min(ceil, adj));
 }
 
 module.exports = {

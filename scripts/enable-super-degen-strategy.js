@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Force SUPER DEGEN strategy.json (stop bot first — shutdown save can clobber).
+// Force SUPER / MEGA SUPER DEGEN strategy.json (stop bot first — shutdown save can clobber).
 const fs = require('fs');
 const path = require('path');
 
@@ -16,36 +16,47 @@ Object.assign(s, {
   degenTradeInBear: true,
   aiForceEntryEnabled: true,
   skipConservativeSelfLearn: true,
-  macroSoftPenalty: 6,
-  bearSizeMultiplier: 0.85,
-  minConfidenceScore: 40,
-  operatorMinConfidenceScore: 40,
+  macroSoftPenalty: 4,
+  bearSizeMultiplier: 0.9,
+  minConfidenceScore: 35,
+  operatorMinConfidenceScore: 35,
   riskPerTradePercent: 2.5,
   maxPositionPercent: 80,
-  consecutiveLossLimit: 6,
-  lossCooldownMinutes: 15,
+  consecutiveLossLimit: 8,
+  lossCooldownMinutes: 10,
   cashReservePercent: 0,
   scaleInEnabled: true,
-  intervalMinutes: 10,
-  checkIntervalSeconds: 30,
-  maxFundingRate: 0.00025,
-  minVolumeRatio: 0.5,
+  scaleInOnlyInProfit: false,
+  profitPriority: false,
+  intervalMinutes: 8,
+  checkIntervalSeconds: 25,
+  takeProfitPercent: 3.5,
+  stopLossPercent: 2.5,
+  maxFundingRate: 0.00035,
+  minVolumeRatio: 0.4,
   scannerEnabled: true,
   aiSignalEnabled: true,
   aiDynamicThreshold: true,
   aiExitEnabled: true,
   aiTakeProfitEnabled: true,
   aiEntrySecondOpinion: false,
+  notifyTradesOnly: true,
+  maxDailyLossPercent: 0,
+  disableDailyLossLimit: true,
+  active: true,
+  stopLoss: null,
+  takeProfit: null,
   updatedAt: new Date().toISOString(),
 });
 const tmp = p + '.tmp';
 fs.writeFileSync(tmp, JSON.stringify(s, null, 2) + '\n');
 fs.renameSync(tmp, p);
-console.log('SUPER DEGEN written', p);
+console.log('MEGA SUPER DEGEN written', p);
 console.log({
   aiMode: s.aiMode,
   minConfidenceScore: s.minConfidenceScore,
   riskPerTradePercent: s.riskPerTradePercent,
   maxPositionPercent: s.maxPositionPercent,
-  enterNote: 'code enter conf ~42',
+  notifyTradesOnly: s.notifyTradesOnly,
+  enterNote: 'AI enter conf ~35 (env AI_SUPER_DEGEN_ENTER_CONF)',
 });

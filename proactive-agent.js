@@ -31,7 +31,14 @@ function saveState(state) {
   fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 }
 
+function tradesOnlyMode() {
+  return process.env.NOTIFY_TRADES_ONLY === '1'
+    || process.env.NOTIFY_TRADES_ONLY === 'true'
+    || process.env.PROACTIVE_DISABLED === '1';
+}
+
 function canSend(state, urgent = false) {
+  if (tradesOnlyMode()) return false; // only entry/exit via notifyTrade
   if (urgent) return true;
   if (!state.lastProactiveAt) return true;
   return Date.now() - state.lastProactiveAt >= MIN_GAP_MS;

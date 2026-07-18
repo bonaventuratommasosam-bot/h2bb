@@ -168,17 +168,22 @@ function regimeAdjustments(classification, strategy = {}) {
         },
       };
 
-    case 'ranging':
+    case 'ranging': {
+      // Super degen: barely raise threshold / keep size up
+      const sd = strategy?.aiMode === 'super_degen'
+        || strategy?.aiMode === 'mega_super_degen'
+        || strategy?.aiMode === 'yolo';
       return {
         mode: 'reduce',
         flat: false,
         adjustments: {
-          scoreBoost: 10,          // soglia più alta
-          sizeMultiplier: 0.5,     // size dimezzata
-          tpMultiplier: 1.5,       // TP più stretti
+          scoreBoost: sd ? 2 : 10,          // soglia più alta (soft in super degen)
+          sizeMultiplier: sd ? 0.85 : 0.5,  // size dimezzata
+          tpMultiplier: sd ? 1.1 : 1.5,     // TP più stretti
           reason: `Ranging • ${classification.reasons.join(', ')}`,
         },
       };
+    }
 
     default: // mixed / unknown
       return {

@@ -147,7 +147,22 @@ function scoreEntry(analysis, strategy = {}) {
   let score = 0;
   const regime = entry.regime || 'mixed';
   const baseMin = strategy.minConfidenceScore ?? 65;
-  const effectiveMin = ind.dynamicMinScore(baseMin, regime, macro.ok ? macro.trend : 'neutral');
+  const superDegen = strategy.aiMode === 'super_degen'
+    || strategy.aiMode === 'mega_super_degen'
+    || strategy.aiMode === 'yolo';
+  const degen = superDegen || strategy.aiMode === 'degen' || strategy.aiMode === 'aggressive';
+  // Super degen: low floor so dynamic threshold doesn't re-raise to 55+
+  const dynOpts = superDegen
+    ? { floor: 30, ceil: 70, rangingBoost: 2 }
+    : degen
+      ? { floor: 40, ceil: 75, rangingBoost: 3 }
+      : {};
+  const effectiveMin = ind.dynamicMinScore(
+    baseMin,
+    regime,
+    macro.ok ? macro.trend : 'neutral',
+    dynOpts
+  );
 
   // Macro bearish: hard block in balanced; soft penalty in degen/super_degen
   const softMacro = strategy.softMacroBlock === true

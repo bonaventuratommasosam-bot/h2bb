@@ -53,12 +53,24 @@ function appendTrade(trade) {
   }
 }
 
+function notifyTradesOnly() {
+  if (process.env.NOTIFY_TRADES_ONLY === '1' || process.env.NOTIFY_TRADES_ONLY === 'true') {
+    return true;
+  }
+  return shared.strategy?.notifyTradesOnly === true;
+}
+
+/** Telegram: always trades (entry/exit). Alerts only if NOTIFY_TRADES_ONLY is off. */
 function notifyOwner(title, detail, trade, signal) {
   const w = loadWallet();
   const chatId = w?.ownerChatId;
   if (!chatId) return;
-  if (trade) alerts.notifyTrade(chatId, trade, signal);
-  else if (title) alerts.notifyAlert(chatId, title, detail);
+  if (trade) {
+    alerts.notifyTrade(chatId, trade, signal);
+    return;
+  }
+  if (notifyTradesOnly()) return; // mute meta/perf/auto-resume chatter
+  if (title) alerts.notifyAlert(chatId, title, detail);
 }
 
 async function unblockRiskBaseline({ forceClearSticky = false } = {}) {
