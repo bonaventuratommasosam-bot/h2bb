@@ -69,15 +69,13 @@ async function runProactiveCheck() {
   try {
     const result = await proactive.evaluate(await buildProactiveContext());
     if (result.sent > 0) console.log(`[PROACTIVE] Inviati ${result.sent} messaggi`);
-    // Meta-Controller: valuta se cambiare policy
+    // Meta-Controller: valuta se cambiare policy (MAI su Telegram — solo log)
     try {
       const mcResult = metaController.evaluate(shared.strategy, shared.balance);
       if (mcResult.changed) {
         console.log(`[META] ${mcResult.modeChanged ? 'Mode change' : 'Adjust'}: ${mcResult.reason}`);
         saveStrategy();  // P0: persisti le modifiche del meta-controller
-        if (mcResult.adjustments?.message) {
-          notifyOwner('Meta-Controller', mcResult.adjustments.message);
-        }
+        // Do not notifyOwner — user wants only entry/exit Telegram signals
       }
     } catch (e) {
       console.error('[META] Errore:', e.message);
@@ -106,14 +104,13 @@ async function runProactiveCheck() {
       console.error('[EXPERIMENT] Errore:', e.message);
     }
 
-    // Loop 1: performance alert
+    // Loop 1: performance alert — log only (no Telegram)
     try {
       const feedback = require('../performance-feedback');
       const fb = feedback.buildFeedbackContext(shared.strategy);
       const perfAlert = feedback.evaluatePerformanceAlert(fb, shared.strategy);
       if (perfAlert?.alert) {
         console.log(`[PERF-ALERT] ${perfAlert.message}`);
-        notifyOwner('Performance Alert', perfAlert.message);
       }
     } catch (e) {
       console.error('[PERF-ALERT] Errore:', e.message);

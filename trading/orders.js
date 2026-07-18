@@ -54,22 +54,33 @@ function appendTrade(trade) {
 }
 
 function notifyTradesOnly() {
+  if (process.env.NOTIFY_TRADES_ONLY === '0' || process.env.NOTIFY_TRADES_ONLY === 'false') {
+    return shared.strategy?.notifyTradesOnly === true;
+  }
   if (process.env.NOTIFY_TRADES_ONLY === '1' || process.env.NOTIFY_TRADES_ONLY === 'true') {
     return true;
   }
-  return shared.strategy?.notifyTradesOnly === true;
+  // default: strategy flag or true when super_degen quiet
+  if (shared.strategy?.notifyTradesOnly === true) return true;
+  if (shared.strategy?.aiMode === 'super_degen') return true;
+  return alerts.tradesOnlyMode ? alerts.tradesOnlyMode() : true;
 }
 
-/** Telegram: always trades (entry/exit). Alerts only if NOTIFY_TRADES_ONLY is off. */
+/** Telegram: SOLO entry (buy) / exit (sell). Mai meta-controller / perf / auto-resume. */
 function notifyOwner(title, detail, trade, signal) {
   const w = loadWallet();
   const chatId = w?.ownerChatId;
   if (!chatId) return;
-  if (trade) {
+  if (trade && (trade.type === 'buy' || trade.type === 'sell')) {
     alerts.notifyTrade(chatId, trade, signal);
     return;
   }
-  if (notifyTradesOnly()) return; // mute meta/perf/auto-resume chatter
+  // Meta e altri alert: mai se trades-only; meta mai in ogni caso
+  if (/meta[- ]?controller/i.test(String(title || ''))) {
+    console.log(`[TG-MUTE] meta-controller: ${detail || title}`);
+    return;
+  }
+  if (notifyTradesOnly()) return;
   if (title) alerts.notifyAlert(chatId, title, detail);
 }
 
