@@ -183,11 +183,28 @@ async function _runTickInternal() {
   // Sticky CB stays until new day (daily) or explicit operator resume (drawdown).
 
   const price = await getPrice(shared.strategy.pair);
+  const hasOpenPos = Math.abs(position) > 1e-9;
+
+  // Flat: drop absolute TP/SL left over from a previous pair/entry (e.g. BTC SL on SOL)
+  // so they cannot early-return every tick and freeze entries forever.
+  if (!hasOpenPos && (shared.strategy.stopLoss != null || shared.strategy.takeProfit != null)) {
+    const staleSl = shared.strategy.stopLoss;
+    const staleTp = shared.strategy.takeProfit;
+    shared.strategy.stopLoss = null;
+    shared.strategy.takeProfit = null;
+    console.log(
+      `[CLEANUP] Flat — cleared stale absolute SL/TP `
+      + `(was SL=${staleSl} TP=${staleTp}) for ${shared.strategy.pair}`
+    );
+    try { require('../state/strategy').saveStrategy(); } catch { /* ignore */ }
+  }
+
   // Always manage open HL positions (manual or bot) with TP/SL/exit AI
-  if (Math.abs(position) > 1e-9) {
+  if (hasOpenPos) {
     await adoptOpenPositionIfNeeded(position, price);
   }
-  if (shared.strategy.stopLoss && price < shared.strategy.stopLoss) {
+  // Absolute SL/TP only when a position is open (never when flat)
+  if (hasOpenPos && shared.strategy.stopLoss && price < shared.strategy.stopLoss) {
     console.log(`[STOP-LOSS] ${shared.strategy.pair} @ ${price} < ${shared.strategy.stopLoss}`);
     const slRes = await executeMarketSell(shared.strategy.pair, 1);
     // Only re-arm entries if risk allows auto-resume (never with sticky CB)
@@ -199,7 +216,7 @@ async function _runTickInternal() {
     writeHeartbeat({ price });
     return;
   }
-  if (shared.strategy.takeProfit && price > shared.strategy.takeProfit) {
+  if (hasOpenPos && shared.strategy.takeProfit && price > shared.strategy.takeProfit) {
     console.log(`[TAKE-PROFIT] ${shared.strategy.pair} @ ${price} > ${shared.strategy.takeProfit}`);
     const tpRes = await executeMarketSell(shared.strategy.pair, 1);
     if (tpRes.ok && riskManager.canAutoResumeTrading(shared.riskState)) {
