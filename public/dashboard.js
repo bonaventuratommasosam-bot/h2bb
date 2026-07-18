@@ -14,7 +14,7 @@
   let lwcChart = null;
   let lwcSeries = null;
   let lwcPair = null;
-  let lwcInterval = '15'; // dashboard query chartTf
+  let lwcInterval = '60'; // default 1H — cleaner than 5/15m
   let lwcLoadPromise = null;
   let lwcResizeObs = null;
   let lwcLastSig = '';
@@ -102,14 +102,11 @@
     const symbol = pairToTvSymbol(p);
     if ($('tv-symbol-pill')) $('tv-symbol-pill').textContent = `${p}-PERP`;
     if ($('tv-bar-src')) {
-      const b = markerCounts?.buys ?? 0;
-      const s = markerCounts?.sells ?? 0;
-      $('tv-bar-src').textContent = `HL ${intervalLabel || '—'} · ${b}B / ${s}S`;
+      // Minimal: pair + TF only (no B/S spam)
+      $('tv-bar-src').textContent = `${p} · ${intervalLabel || '—'}`;
     }
     const label = $('tv-bar-label');
-    if (label) {
-      label.textContent = `Live chart · ${p} · bot buy/sell markers`;
-    }
+    if (label) label.textContent = 'Chart';
     const href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(symbol)}`;
     const link = $('tv-fallback-link');
     if (link) link.href = href;
@@ -186,11 +183,11 @@
       });
 
       lwcSeries = lwcChart.addCandlestickSeries({
-        upColor: '#2fd48a',
-        downColor: '#f06570',
+        upColor: 'rgba(47, 212, 138, 0.85)',
+        downColor: 'rgba(240, 101, 112, 0.75)',
         borderVisible: false,
-        wickUpColor: '#2fd48a',
-        wickDownColor: '#f06570',
+        wickUpColor: 'rgba(47, 212, 138, 0.55)',
+        wickDownColor: 'rgba(240, 101, 112, 0.5)',
       });
 
       if (typeof ResizeObserver !== 'undefined') {
@@ -271,12 +268,12 @@
     const byTime = new Map();
     candleData.forEach((c) => byTime.set(c.time, c));
     const series = Array.from(byTime.values()).sort((a, b) => a.time - b.time);
-    // Cap series length for UI performance (keep most recent)
-    const MAX_BARS = 800;
+    // Keep recent bars only — cleaner viewport
+    const MAX_BARS = 180;
     const seriesTrim = series.length > MAX_BARS ? series.slice(series.length - MAX_BARS) : series;
     const times = seriesTrim.map((c) => c.time);
 
-    const sig = `${p}|${interval}|${seriesTrim.length}|${markers.length}|${(markers[markers.length - 1] || {}).t || 0}`;
+    const sig = `${p}|${interval}|${seriesTrim.length}|${markers.length}|${(markers[markers.length - 1] || {}).t || 0}|clean`;
     if (sig === lwcLastSig) {
       setTvMeta(p, interval, { buys: priceChart.buys, sells: priceChart.sells });
       showTvFallback(false);
@@ -294,28 +291,30 @@
     try {
       lwcSeries.setData(seriesTrim);
 
-      // Group markers by snapped time — one buy + one sell per bar max
-      const markMap = new Map();
+      // Clean markers: arrows only, no labels; one buy + one sell per bar; last 30 fills
       const tMin = times[0];
       const tMax = times[times.length - 1];
-      markers.forEach((m) => {
-        if (!Number.isFinite(m.t) || !Number.isFinite(m.price)) return;
+      const recent = markers
+        .filter((m) => Number.isFinite(m.t) && Number.isFinite(m.price))
+        .filter((m) => {
+          const ts = normalizeCandleTimeSec(m.t);
+          return ts != null && ts >= tMin && ts <= tMax;
+        })
+        .slice(-30);
+
+      const markMap = new Map();
+      recent.forEach((m) => {
         const time = snapMarkerTime(m.t, times);
         if (time < tMin || time > tMax) return;
         const isBuy = m.type === 'buy';
         const key = `${time}:${isBuy ? 'b' : 's'}`;
-        const amount = m.amount != null && Number.isFinite(m.amount) ? m.amount : null;
-        const pnl = m.pnl != null && Number.isFinite(m.pnl) ? m.pnl : null;
-        let text = isBuy ? 'BUY' : 'SELL';
-        if (amount != null) text += ` ${amount < 0.01 ? amount.toFixed(5) : amount.toFixed(3)}`;
-        if (!isBuy && pnl != null) text += ` ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`;
         markMap.set(key, {
           time,
           position: isBuy ? 'belowBar' : 'aboveBar',
           color: isBuy ? '#2fd48a' : '#f06570',
           shape: isBuy ? 'arrowUp' : 'arrowDown',
-          text,
-          size: 2,
+          // no text — labels made the chart unreadable
+          size: 1,
         });
       });
       const lwcMarkers = Array.from(markMap.values()).sort(
@@ -1379,7 +1378,8 @@
     renderAccount(data);
     renderRiskKv(data);
     renderWatchlist(data.watchlist);
-    renderTradeChart(data.priceChart);
+    // Secondary mini chart removed from UI (main chart has clean markers)
+    if ($('trade-chart')) renderTradeChart(data.priceChart);
     renderPositions(data.openPositions);
     renderTrades(data.trades);
     renderEquity(data.equityCurve || []);

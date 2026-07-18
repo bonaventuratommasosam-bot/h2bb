@@ -200,29 +200,17 @@ body.world-body {
   background: rgba(0, 0, 0, 0.35);
 }
 .tv-bar-label {
-  font-size: 0.6rem;
+  font-size: 0.62rem;
   font-weight: 650;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
 }
 .tv-bar-src {
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   color: var(--faint);
-}
-.tv-legend {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
   margin-right: auto;
-  margin-left: 0.35rem;
-  font-family: var(--mono);
-  font-size: 0.58rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
-.tv-leg-buy { color: #2fd48a; }
-.tv-leg-sell { color: #f06570; }
 .tv-bar-actions {
   display: flex;
   gap: 0.25rem;
@@ -309,15 +297,15 @@ body.world-body {
   left: 1.1rem;
   bottom: 2.85rem;
   z-index: 5;
-  padding: 0.75rem 0.9rem 0.8rem;
-  min-width: min(260px, calc(100% - 2.2rem));
-  max-width: min(300px, 42vw);
-  background: rgba(10, 14, 22, 0.88);
-  border: 1px solid var(--border-strong);
+  padding: 0.55rem 0.75rem 0.6rem;
+  min-width: min(200px, calc(100% - 2.2rem));
+  max-width: min(240px, 36vw);
+  background: rgba(10, 14, 22, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--r);
-  backdrop-filter: blur(16px) saturate(1.15);
-  -webkit-backdrop-filter: blur(16px) saturate(1.15);
-  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px) saturate(1.1);
+  -webkit-backdrop-filter: blur(12px) saturate(1.1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
 }
 .quote-head {
   display: flex;
@@ -370,15 +358,15 @@ body.world-body {
 .quote-meta .good { color: var(--good); }
 .quote-meta .bad { color: var(--bad); }
 
-/* signal card — compact top-right */
+/* signal card — compact top-right (less opaque so chart stays readable) */
 .signal-card {
   position: absolute;
   top: 4.35rem;
   right: 1.1rem;
   z-index: 5;
-  width: min(260px, calc(100% - 2.2rem));
-  padding: 0.7rem 0.8rem;
-  background: rgba(10, 14, 22, 0.9);
+  width: min(220px, calc(100% - 2.2rem));
+  padding: 0.55rem 0.7rem;
+  background: rgba(10, 14, 22, 0.72);
   border: 1px solid var(--border-strong);
   border-left: 2px solid var(--blue);
   border-radius: var(--r-lg);
@@ -411,9 +399,8 @@ body.world-body {
 .signal-action.good { color: var(--good); }
 .signal-action.bad { color: var(--bad); }
 .signal-reason {
-  font-size: 0.76rem;
-  color: var(--muted);
-  line-height: 1.45;
+  /* long AI reasons clutter the chart — hide on main stage */
+  display: none;
 }
 
 /* ticker */
